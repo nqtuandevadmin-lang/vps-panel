@@ -16,7 +16,7 @@
 set -Eeuo pipefail
 
 # ---------------- config ----------------
-PANEL_REPO="${PANEL_REPO:-vps-panel/panel}"
+PANEL_REPO="${PANEL_REPO:-tuancutephomaiquedethuong-code/vps-panel}"
 PANEL_VERSION="main"
 INSTALL_DIR="/opt/vps-panel"
 DATA_DIR="$INSTALL_DIR/data"
