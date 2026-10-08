@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="VPS Panel - web-based VPS control panel with terminal, file manager, process and service management">
+<meta name="theme-color" content="#0b1020">
+<meta property="og:title" content="VPS Panel">
+<meta property="og:description" content="Web VPS control panel: terminal, files, processes, services, firewall, backups">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<title>VPS Panel</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1020'/%3E%3Cpath d='M9 10l7 6-7 6' stroke='%234ade80' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='18' y1='22' x2='25' y2='22' stroke='%234ade80' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1020'/%3E%3Cpath d='M9 10l7 6-7 6' stroke='%234ade80' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='18' y1='22' x2='25' y2='22' stroke='%234ade80' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preload" as="font" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.min.css">
+<link rel="stylesheet" href="/css/app.css?v=1.0.0">
+</head>
+<body>
+
+<!-- ============ SPLASH ============ -->
+<div id="splash" class="splash" role="status" aria-label="Loading">
+  <svg class="splash-logo" viewBox="0 0 32 32" width="56" height="56" aria-hidden="true">
+    <rect width="32" height="32" rx="7" fill="var(--brand)"/>
+    <path d="M9 10l7 6-7 6" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="18" y1="22" x2="25" y2="22" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+  </svg>
+  <div class="splash-bar"><div class="splash-fill"></div></div>
+</div>
+
+<!-- ============ LOGIN ============ -->
+<section id="login-screen" class="login-screen" hidden>
+  <div class="login-card">
+    <svg class="login-logo" viewBox="0 0 32 32" width="44" height="44" aria-hidden="true">
+      <rect width="32" height="32" rx="7" fill="var(--brand)"/>
+      <path d="M9 10l7 6-7 6" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="18" y1="22" x2="25" y2="22" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>
+    <h1>VPS Panel</h1>
+    <p class="login-sub">Sign in to your server</p>
+    <form id="login-form" autocomplete="off">
+      <label class="field">
+        <span class="field-label">Username</span>
+        <input id="login-user" name="username" type="text" required minlength="3" maxlength="32" autofocus>
+      </label>
+      <label class="field">
+        <span class="field-label">Password</span>
+        <input id="login-pass" name="password" type="password" required minlength="12">
+      </label>
+      <label class="field" id="totp-field" hidden>
+        <span class="field-label">2FA code</span>
+        <input id="login-totp" name="totp" type="text" inputmode="numeric" maxlength="10" placeholder="000000">
+      </label>
+      <div id="login-error" class="form-error" role="alert" hidden></div>
+      <button class="btn btn-primary btn-block" type="submit" id="login-btn">
+        <span class="btn-label">Sign in</span>
+      </button>
+    </form>
+    <details class="login-help">
+      <summary>First time setup</summary>
+      <p>Open a terminal on the server and run the installer. The first account you register becomes the admin.</p>
+    </details>
+  </div>
+</section>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app-shell" class="app-shell" hidden>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <aside id="sidebar" class="sidebar" aria-label="Navigation">
+    <div class="sidebar-brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="var(--brand)"/>
+        <path d="M9 10l7 6-7 6" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="18" y1="22" x2="25" y2="22" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-text">VPS Panel</span>
+    </div>
+    <nav class="nav" id="nav">
+      <a class="nav-item" data-view="dashboard" href="#/dashboard"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Dashboard</span></a>
+      <a class="nav-item" data-view="terminal" href="#/terminal"><svg class="icon" viewBox="0 0 24 24"><path d="M4 5l6 7-6 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="19" x2="20" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Terminal</span></a>
+      <a class="nav-item" data-view="files" href="#/files"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 3h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Files</span></a>
+      <a class="nav-item" data-view="processes" href="#/processes"><svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Processes</span></a>
+      <a class="nav-item" data-view="services" href="#/services"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Services</span></a>
+      <a class="nav-item" data-view="network" href="#/network"><svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="19" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.3 10.8l9.4-4.6M7.3 13.2l9.4 4.6" stroke="currentColor" stroke-width="2"/></svg><span>Network</span></a>
+      <a class="nav-item" data-view="disks" href="#/disks"><svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Disks</span></a>
+      <div class="nav-group">Admin</div>
+      <a class="nav-item" data-view="users" href="#/users"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Panel Users</span></a>
+      <a class="nav-item" data-view="sysusers" href="#/sysusers"><svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 20c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M21.5 20c0-2.6-1.7-4.4-4-5.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>System Users</span></a>
+      <a class="nav-item" data-view="firewall" href="#/firewall"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Firewall</span></a>
+      <a class="nav-item" data-view="packages" href="#/packages"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 12l9-5M12 12v10M12 12L3 7" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Packages</span></a>
+      <a class="nav-item" data-view="cron" href="#/cron"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Cron Jobs</span></a>
+      <a class="nav-item" data-view="logs" href="#/logs"><svg class="icon" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v5h5M9 12h7M9 16h7M9 8h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Logs</span></a>
+      <a class="nav-item" data-view="backups" href="#/backups"><svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Backups</span></a>
+      <a class="nav-item" data-view="docker" href="#/docker"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="8" width="4" height="4" rx="0.5"/><rect x="9" y="8" width="4" height="4" rx="0.5"/><rect x="15" y="8" width="4" height="4" rx="0.5"/><rect x="6" y="14" width="4" height="4" rx="0.5"/><rect x="12" y="14" width="4" height="4" rx="0.5"/><path d="M2 21h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Docker</span></a>
+      <a class="nav-item" data-view="nginx" href="#/nginx"><svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 9l3 3-3 3M13 15h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Nginx</span></a>
+      <a class="nav-item" data-view="ssl" href="#/ssl"><svg class="icon" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="15" r="1.6" fill="currentColor"/></svg><span>SSL</span></a>
+      <a class="nav-item" data-view="audit" href="#/audit"><svg class="icon" viewBox="0 0 24 24"><path d="M9 3h10a2 2 0 012 2v14a2 2 0 01-2 2H9a2 2 0 01-2-2V5a2 2 0 012-2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 8h6M7 12h6M7 16h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M4 8h2M4 12h2M4 16h2" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".5"/></svg><span>Audit Log</span></a>
+      <a class="nav-item" data-view="settings" href="#/settings"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Settings</span></a>
+      <a class="nav-item" data-view="about" href="#/about"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="8" r="1.2" fill="currentColor"/></svg><span>About</span></a>
+    </nav>
+    <button class="sidebar-collapse" id="sidebar-collapse" aria-label="Collapse sidebar" title="Collapse">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </aside>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button class="icon-btn" id="menu-toggle" aria-label="Menu" title="Menu">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <nav class="breadcrumb" id="breadcrumb" aria-label="Breadcrumb">
+        <span>Home</span><span class="sep">/</span><span id="crumb-view">Dashboard</span>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Theme">
+        <svg class="icon icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <svg class="icon icon-moon" viewBox="0 0 24 24"><path d="M20 13.5A8 8 0 1110.5 4 6.5 6.5 0 0020 13.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="bell-btn" aria-label="Notifications" title="Notifications">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 19a2 2 0 004 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span class="badge" id="notif-badge" hidden></span>
+        </button>
+        <div class="user-menu">
+          <button class="user-btn" id="user-btn" aria-haspopup="true" aria-expanded="false">
+            <span class="avatar" id="user-avatar" aria-hidden="true">U</span>
+            <span id="user-name">—</span>
+          </button>
+          <div class="dropdown" id="user-dropdown" role="menu" hidden>
+            <button class="dropdown-item" data-action="profile" role="menuitem">Profile</button>
+            <button class="dropdown-item" data-action="2fa" role="menuitem">Two-factor auth</button>
+            <button class="dropdown-item" data-action="sessions" role="menuitem">Sessions</button>
+            <button class="dropdown-item" data-action="apikeys" role="menuitem">API keys</button>
+            <div class="dropdown-sep"></div>
+            <button class="dropdown-item danger" data-action="logout" role="menuitem">Sign out</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="tabbar" id="tabbar" role="tablist" aria-label="Open views" hidden></div>
+
+    <main id="main" class="content" tabindex="-1">
+      <div id="view-root" class="view-root"></div>
+    </main>
+  </div>
+</div>
+
+<!-- drawer for mobile nav -->
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+
+<!-- modal root -->
+<div id="modal-root" hidden></div>
+
+<!-- toast root -->
+<div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="false"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+<script src="/js/app.js?v=1.0.0"></script>
+<script src="/js/terminal.js?v=1.0.0"></script>
+<script>
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>

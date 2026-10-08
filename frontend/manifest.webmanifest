@@ -1,0 +1,24 @@
+{
+  "name": "VPS Panel",
+  "short_name": "VPS Panel",
+  "description": "Web VPS control panel with terminal, file manager, services, firewall and backups",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%230b1020'/%3E%3Cpath d='M140 160l110 96-110 96' stroke='%234ade80' stroke-width='40' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='290' y1='352' x2='400' y2='352' stroke='%234ade80' stroke-width='40' stroke-linecap='round'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%230b1020'/%3E%3Cpath d='M140 160l110 96-110 96' stroke='%234ade80' stroke-width='40' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='290' y1='352' x2='400' y2='352' stroke='%234ade80' stroke-width='40' stroke-linecap='round'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

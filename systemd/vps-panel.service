@@ -1,0 +1,36 @@
+[Unit]
+Description=VPS Panel (web control panel)
+Documentation=https://github.com/vps-panel/panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=panel
+Group=panel
+WorkingDirectory=/opt/vps-panel/backend
+ExecStart=/usr/bin/node /opt/vps-panel/backend/src/index.js
+# cluster mode (use all CPU cores): uncomment next line and remove line above
+# ExecStart=/usr/bin/node /opt/vps-panel/backend/src/index.js --cluster
+# restart policy (auto-restart)
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/vps-panel/data
+ProtectHome=true
+# environment
+Environment=NODE_ENV=production
+Environment=PANEL_ROOT=/opt/vps-panel
+Environment=PANEL_DATA=/opt/vps-panel/data
+# graceful shutdown
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

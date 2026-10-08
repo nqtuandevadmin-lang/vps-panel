@@ -1,0 +1,32 @@
+{
+  "name": "vps-panel-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "VPS Control Panel - backend API, WebSocket terminal, PTY engine",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "start:cluster": "node src/index.js --cluster",
+    "test": "node test/api.test.js && node test/terminal.test.js"
+  },
+  "dependencies": {
+    "@fastify/compress": "^7.0.3",
+    "@fastify/cookie": "^9.3.1",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/multipart": "^8.3.1",
+    "@fastify/rate-limit": "^9.1.0",
+    "@fastify/static": "^7.0.4",
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.7.4",
+    "fastify": "^4.28.1",
+    "jsonwebtoken": "^9.0.2",
+    "node-pty": "^1.0.0",
+    "otplib": "^12.0.1",
+    "pino": "^8.19.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0"
+  }
+}
