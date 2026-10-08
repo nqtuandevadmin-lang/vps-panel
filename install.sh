@@ -17,7 +17,9 @@ set -Eeuo pipefail
 
 # ---------------- config ----------------
 PANEL_REPO="${PANEL_REPO:-tuancutephomaiquedethuong-code/vps-panel}"
-PANEL_VERSION="main"
+PANEL_VERSION="v1.0.0"           # release tag used for the verified tarball asset
+PANEL_BRANCH="main"              # fallback branch if the release asset is missing
+ASSET_NAME="vps-panel-${PANEL_VERSION}.tar.gz"
 INSTALL_DIR="/opt/vps-panel"
 DATA_DIR="$INSTALL_DIR/data"
 LOG_FILE="/var/log/vps-panel-install.log"
@@ -298,36 +300,45 @@ install_node() {
 # ---------------- download & verify source ----------------
 download_source() {
   local tmp="/tmp/vps-panel-src.tar.gz"
-  local url="https://github.com/$PANEL_REPO/archive/refs/heads/$PANEL_VERSION.tar.gz"
+  local release_url="https://github.com/$PANEL_REPO/releases/download/$PANEL_VERSION/$ASSET_NAME"
+  local branch_url="https://github.com/$PANEL_REPO/archive/refs/heads/$PANEL_BRANCH.tar.gz"
   rm -f "$tmp"
-  start_spinner "downloading panel source from GitHub..."
-  if ! curl -fL --retry 3 -o "$tmp" "$url"; then
-    die "cannot download source from $url - check the repo name (PANEL_REPO=$PANEL_REPO)"
+  start_spinner "downloading verified release asset..."
+  if curl -fL --retry 3 -o "$tmp" "$release_url"; then
+    SOURCE_KIND="release asset (${ASSET_NAME})"
+  else
+    warn "release asset not found, falling back to branch tarball ($PANEL_BRANCH)"
+    start_spinner "downloading branch tarball..."
+    curl -fL --retry 3 -o "$tmp" "$branch_url" || die "cannot download source from $branch_url (set PANEL_REPO=<owner>/<repo>)"
+    SOURCE_KIND="branch tarball (${PANEL_BRANCH})"
   fi
   stop_spinner
 
-  # SHA256 verification (real)
-  if [ "$FORCE" != "1" ]; then
+  # SHA256 verification (real): compare against SHA256SUMS in the repo
+  local sums_url="https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/SHA256SUMS"
+  local sums="/tmp/vps-panel-SHA256SUMS"
+  if [ "$FORCE" != "1" ] && curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then
     start_spinner "verifying SHA256 checksum..."
-    local sums_url="https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_VERSION/SHA256SUMS"
-    local sums="/tmp/vps-panel-SHA256SUMS"
-    if curl -fsSL -o "$sums" "$sums_url"; then
-      local expected actual
-      expected="$(grep 'src.tar.gz' "$sums" | head -1 | awk '{print $1}')"
-      actual="$(sha256sum "$tmp" | awk '{print $1}')"
-      if [ -z "$expected" ]; then
-        warn "SHA256SUMS does not contain src.tar.gz entry - skipping checksum (report this to the maintainer)"
-      elif [ "$expected" != "$actual" ]; then
-        die "CHECKSUM MISMATCH - possible tampering! expected=$expected actual=$actual"
-      else
-        ok "checksum verified: $actual"
+    local expected actual
+    expected="$(grep -F "$ASSET_NAME" "$sums" | head -1 | awk '{print $1}')"
+    actual="$(sha256sum "$tmp" | awk '{print $1}')"
+    if [ -n "$expected" ] && [ "$expected" = "$actual" ]; then
+      ok "checksum verified: $actual ($ASSET_NAME)"
+    elif [ -z "$expected" ]; then
+      warn "SHA256SUMS has no entry for $ASSET_NAME - downloaded from $SOURCE_KIND"
+      if [ "$SOURCE_KIND" != "release asset ($ASSET_NAME)" ]; then
+        die "refusing unverifiable download: SHA256SUMS entry missing. Use --force to override."
       fi
+      warn "could not verify checksum of the release asset - re-run with --force to skip"
     else
-      warn "SHA256SUMS not found in repo - install with --force was NOT set; continuing with WARNING (checksum unverified)"
+      die "CHECKSUM MISMATCH - possible tampering! expected=$expected actual=$actual"
     fi
     stop_spinner
-  else
+  elif [ "$FORCE" = "1" ]; then
     warn "--force: checksum verification skipped"
+  else
+    warn "SHA256SUMS not found - cannot verify download. Aborting (use --force to override)."
+    die "unverifiable download rejected"
   fi
 
   rm -rf /tmp/vps-panel-extract
