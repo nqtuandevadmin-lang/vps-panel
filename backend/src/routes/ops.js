@@ -173,14 +173,6 @@ async function opsRoutes(app, opts) {
     return { ok: true };
   });
 
-  // signing-up settings shown on the auth screen
-  app.get('/auth/registration-info', async () => ({
-    ok: true,
-    allowPublicSignup: cfg.allowPublicSignup,
-    invitesOnly: cfg.invitesOnly,
-    passwordMinLen: cfg.passwordMinLen,
-  }));
-
   // ---- backups ----
   app.get('/backups', { preHandler: [opts.authMw, requireRole('user')] }, async (req) => {
     const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.tar.gz')).map(f => {

@@ -29,6 +29,18 @@ async function authRoutes(app, opts) {
     return { ok: true, needsSetup: db.coll('users').length === 0, users: db.coll('users').length };
   });
 
+  // ---- public signup rules (shown on the auth screen before login) ----
+  app.get('/auth/registration-info', async (req) => {
+    const { cfg } = require('../config');
+    return {
+      ok: true,
+      allowPublicSignup: cfg.allowPublicSignup,
+      invitesOnly: cfg.invitesOnly,
+      passwordMinLen: cfg.passwordMinLen,
+      totalUsers: db.coll('users').length,
+    };
+  });
+
   // ---- password strength score ----
   app.post('/auth/password-score', async (req) => {
     return { ok: true, score: auth.passwordScore((req.body && req.body.password) || '') };
