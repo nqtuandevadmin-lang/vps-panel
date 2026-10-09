@@ -62,11 +62,26 @@ function save(sync = false) {
   saveTimer = setTimeout(() => { saveTimer = null; writeAtomic(); }, 50);
 }
 
+let lastBackup = 0;
 function writeAtomic() {
   const tmp = DB_PATH + '.tmp.' + process.pid;
   fs.writeFileSync(tmp, JSON.stringify(db, null, 1), { mode: 0o600 });
   fs.fsyncSync(fs.openSync(tmp, 'r+'));
   fs.renameSync(tmp, DB_PATH);
+  keepRollingBackup();
+}
+
+// A rolling copy of the last known-good database. Cheap insurance: if the data
+// dir is ever lost (bad update, manual wipe) the newest copy can be restored.
+function keepRollingBackup() {
+  const now = Date.now();
+  if (now - lastBackup < 60000) return;      // at most once a minute
+  lastBackup = now;
+  try {
+    const dir = path.join(path.dirname(DB_PATH), 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.copyFileSync(DB_PATH, path.join(dir, 'panel.db.auto.json'));
+  } catch { /* never let backups break a write */ }
 }
 
 const collections = () => db;

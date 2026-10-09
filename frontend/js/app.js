@@ -391,7 +391,21 @@ async function doLogin(e) {
     setTimeout(() => enterApp(), 260);
     toast('Welcome back', `Signed in as ${r.user.username}`, 'ok');
   } catch (ex) {
-    showError('#login-error', ex.message);
+    let msg = ex.message;
+    if (ex.status === 429) {
+      const secs = ex.data && ex.data.retryAfterSec;
+      msg = 'Quá nhiều lần thử. Thử lại sau ' + (secs ? secs + ' giây' : 'một lúc') + '.';
+    } else if (ex.status === 423) {
+      msg = 'Tài khoản đang bị khoá tạm thời. Thử lại sau ' + (ex.data && ex.data.retryInMin ? ex.data.retryInMin + ' phút' : '10 phút') + '.';
+    } else if (ex.status === 401 && ex.data && ex.data.error === 'wrong password') {
+      msg = 'Sai mật khẩu.';
+      if (typeof ex.data.attemptsLeft === 'number' && ex.data.attemptsLeft <= 3) {
+        msg += ' Còn ' + ex.data.attemptsLeft + ' lần thử trước khi bị khoá.';
+      }
+    } else if (ex.status === 401 && ex.data && ex.data.error === 'invalid credentials') {
+      msg = 'Sai tên đăng nhập hoặc mật khẩu.';
+    }
+    showError('#login-error', msg);
     busy(btn, false);
   }
 }
@@ -416,7 +430,10 @@ async function doSignup(e) {
     toast('Account created', `Welcome, ${lr.user.username}`, 'ok');
     setTimeout(() => enterApp(), 260);
   } catch (ex) {
-    showError('#signup-error', (ex.data?.details ? ex.message + ': ' + ex.data.details.join(', ') : ex.message));
+    let msg = ex.message;
+    if (ex.status === 409) msg = 'Tên đăng nhập hoặc email này đã tồn tại. Hãy thử đăng nhập.';
+    if (ex.status === 403) msg = ex.message + ' (cần link mời hợp lệ)';
+    showError('#signup-error', ex.data?.details ? msg + ': ' + ex.data.details.join(', ') : msg);
     busy(btn, false);
   }
 }

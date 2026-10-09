@@ -76,10 +76,11 @@ async function authRoutes(app, opts) {
 
     const existing = db.findBy('users', 'username', username.toLowerCase()) || db.findBy('users', 'email', email.toLowerCase());
     if (existing) return reply.code(409).send({ error: 'user already exists' });
-    const dupeSystem = await new Promise((resolve) => {
-      require('child_process').execFile('id', ['-u', username.toLowerCase()], (err) => resolve(!!err));
+    // A leftover Linux account from a previous install must not block signup.
+    // If it is not owned by a panel account we reuse it instead of failing.
+    const existingSystemUser = await new Promise((resolve) => {
+      require('child_process').execFile('id', ['-u', username.toLowerCase()], (err) => resolve(!err));
     });
-    if (!dupeSystem) return reply.code(409).send({ error: 'that system username is already taken' });
 
     const user = db.insert('users', {
       username: username.toLowerCase(),
@@ -92,7 +93,7 @@ async function authRoutes(app, opts) {
     });
 
     // give them their own Linux identity so the terminal is never a root shell
-    let platform = { ok: false };
+    let platform = { ok: false, reusedSystemUser: existingSystemUser };
     if (cfg.autoCreateLinuxUser) {
       const assigned = await auth.assignPlatformIdentity(user);
       platform = assigned ? { ok: true, uid: user.uid, home: user.home } : { ok: false, error: 'could not create the system account' };
@@ -122,11 +123,22 @@ async function authRoutes(app, opts) {
     const bf = auth.checkBruteForce(user);
     if (!bf.ok) return reply.code(423).send({ error: 'account locked', retryInMin: bf.retryInMin });
 
-    if (!user || !(await auth.verifyPassword(password || '', user.passwordHash))) {
-      if (user) { auth.recordFailedLogin(user); db.audit(user.id, 'auth.login', user.id, 'fail', {}, ip); }
-      // constant-ish delay to reduce timing signal
+    if (!user) {
+      // Same message and timing as a wrong password: never reveal which
+      // usernames exist.
       await new Promise(r => setTimeout(r, 400));
-      return reply.code(401).send({ error: 'invalid credentials' });
+      return reply.code(401).send({ error: 'invalid credentials', hint: 'check the username and password' });
+    }
+    if (!(await auth.verifyPassword(password || '', user.passwordHash))) {
+      auth.recordFailedLogin(user);
+      db.audit(user.id, 'auth.login', user.id, 'fail', {}, ip);
+      const left = cfg.bruteForceMax - (user.failedAttempts || 0);
+      await new Promise(r => setTimeout(r, 400));
+      return reply.code(401).send({
+        error: 'wrong password',
+        attemptsLeft: Math.max(0, left),
+        hint: left > 0 ? `${left} attempt(s) left before the account is locked` : 'the account is now locked',
+      });
     }
 
     // password OK -> check 2FA

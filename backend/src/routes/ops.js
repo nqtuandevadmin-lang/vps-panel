@@ -119,6 +119,27 @@ async function opsRoutes(app, opts) {
     return { ok: true };
   });
 
+  // ---- unlock a locked account (admin) ----
+  app.post('/users/:id/unlock', { preHandler: [opts.authMw, requireRole('admin'), opts.csrfMw] }, async (req, reply) => {
+    const u = db.findBy('users', 'id', req.params.id);
+    if (!u) return reply.code(404).send({ error: 'not found' });
+    db.update('users', u.id, { failedAttempts: 0, lockedUntil: 0 });
+    db.audit(req.user.id, 'panel.user.unlock', u.username, 'ok');
+    return { ok: true, username: u.username };
+  });
+
+  app.get('/login-diagnostics', { preHandler: [opts.authMw, requireRole('admin')] }, async (req) => {
+    const rows = db.coll('users').map(u => ({
+      username: u.username, role: u.role, locked: !!(u.lockedUntil && u.lockedUntil > Date.now()),
+      lockedUntil: u.lockedUntil || 0, failedAttempts: u.failedAttempts || 0,
+      lastLogin: u.lastLogin || 0, hasPlatformUser: typeof u.uid === 'number',
+      uid: u.uid ?? null, totpEnabled: !!u.totpEnabled,
+    }));
+    const recent = db.coll('audit').filter(a => a.action.startsWith('auth.login')).slice(-20)
+      .map(a => ({ ts: a.ts, user: (a.userId || '').slice(0, 8), result: a.result, ip: a.ip }));
+    return { ok: true, users: rows, recentLogins: recent, bruteForceMax: cfg.bruteForceMax, bruteLockoutMin: cfg.bruteLockoutMin };
+  });
+
   // ---------- invite links (share this panel with other people) ----------
   app.get('/auth/invite/:token', async (req, reply) => {
     const inv = db.findBy('invites', 'token', String(req.params.token || '').toLowerCase());
