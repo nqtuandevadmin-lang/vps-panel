@@ -653,7 +653,8 @@ do_install() {
   # ---- protect existing data (accounts must survive every install/update) ----
   local EXISTING_USERS=0
   if [ -f "$DATA_DIR/panel.db.json" ]; then
-    EXISTING_USERS=$(node -e "try{const d=require('$DATA_DIR/panel.db.json');console.log((d.users||[]).length)}catch(e){console.log(0)}" 2>/dev/null || echo 0)
+    EXISTING_USERS="$(node -e "try{const d=require('$DATA_DIR/panel.db.json');console.log((d.users||[]).length)}catch(e){console.log(0)}" 2>/dev/null || echo 0)"
+    [ -n "$EXISTING_USERS" ] || EXISTING_USERS=0
     [ "$EXISTING_USERS" = "0" ] || ok "found $EXISTING_USERS existing account(s) - they will be preserved"
     # rolling backup so a bad install can always be undone
     mkdir -p "$BACKUP_DIR"
@@ -661,21 +662,24 @@ do_install() {
   fi
   # auto-restore: data dir missing/empty but backups exist
   if [ ! -f "$DATA_DIR/panel.db.json" ] && [ -d "$BACKUP_DIR" ]; then
-    local newest
-    newest="$(ls -1t "$BACKUP_DIR"/panel.db*.json 2>/dev/null | head -1)"
+    local newest=""
+    newest="$(ls -1t "$BACKUP_DIR"/panel.db*.json 2>/dev/null | head -1 || true)"
+    [ -n "$newest" ] || true
     if [ -n "$newest" ]; then
       warn "no database found - restoring the newest backup: $(basename "$newest")"
       mkdir -p "$DATA_DIR"
       cp -f "$newest" "$DATA_DIR/panel.db.json" && ok "accounts restored from backup"
-      EXISTING_USERS=$(node -e "try{const d=require('$DATA_DIR/panel.db.json');console.log((d.users||[]).length)}catch(e){console.log(0)}" 2>/dev/null || echo 0)
+      EXISTING_USERS="$(node -e "try{const d=require('$DATA_DIR/panel.db.json');console.log((d.users||[]).length)}catch(e){console.log(0)}" 2>/dev/null || echo 0)"
+      [ -n "$EXISTING_USERS" ] || EXISTING_USERS=0
     fi
   fi
 
   # existing install?
   if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/backend/package.json" ]; then
     if [ "$AUTO" = "1" ]; then
-      err "panel already installed at $INSTALL_DIR - use --update or --uninstall"
-      exit 3
+      # Non-interactive re-run: update in place (keeps every account) instead of failing.
+      warn "panel already installed - performing an in-place update (accounts are kept)"
+      MODE="update"; do_update; return
     fi
     echo -e "${C_YLW}Panel already installed.${C_RST}"
     echo "1) Update (keeps all data)"
@@ -724,7 +728,7 @@ do_install() {
   # config: only write it once, otherwise merge the port into the existing file
   if [ -f "$DATA_DIR/config.json" ]; then
     node -e "
-      const fs=require('fs');const p='$DATA_DIR/config.json';
+      const fs=require('fs');const p=process.env.PANEL_CFG||'$DATA_DIR/config.json';
       let c={}; try{c=JSON.parse(fs.readFileSync(p,'utf8'))}catch(e){}
       c.port=$PORT; if(!c.host)c.host='0.0.0.0'; if(!c.url)c.url='';
       fs.writeFileSync(p, JSON.stringify(c,null,2), {mode:0o600});
