@@ -90,6 +90,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=AGENT_CONFIG=$CFG
 ExecStart=/usr/bin/env node $AGENT_DIR/agent.js
 Restart=always
 RestartSec=5
@@ -114,9 +115,9 @@ if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/nul
   fi
 else
   # no systemd: run with nohup and a cron @reboot entry
-  nohup /usr/bin/env node "$AGENT_DIR/agent.js" >> "$LOG" 2>&1 &
+  AGENT_CONFIG="$CFG" nohup /usr/bin/env node "$AGENT_DIR/agent.js" >> "$LOG" 2>&1 &
   disown 2>/dev/null || true
-  grep -q 'vps-panel-agent' /etc/crontab 2>/dev/null || echo "@reboot $USER /usr/bin/env node $AGENT_DIR/agent.js # vps-panel-agent" >> /etc/crontab
+  grep -q 'vps-panel-agent' /etc/crontab 2>/dev/null || echo "AGENT_CONFIG=$CFG @reboot $USER /usr/bin/env node $AGENT_DIR/agent.js # vps-panel-agent" >> /etc/crontab
   ok "agent started in background (no systemd on this host)"
 fi
 

@@ -19,7 +19,17 @@ const http = require('http');
 const https = require('https');
 const { execFile } = require('child_process');
 
-const CFG_PATH = '/etc/vps-panel-agent.json';
+const CFG_CANDIDATES = [
+  process.env.AGENT_CONFIG,
+  path.join(__dirname, 'config.json'),
+  '/opt/vps-panel-agent/config.json',
+  '/etc/vps-panel-agent.json',
+].filter(Boolean);
+const CFG_PATH = CFG_CANDIDATES.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
+if (!CFG_PATH) {
+  console.error('[agent] no config file found. Re-run the connect command from the panel.');
+  process.exit(1);
+}
 const cfg = JSON.parse(fs.readFileSync(CFG_PATH, 'utf8'));
 const NODE_ID = cfg.nodeId;
 const TOKEN = cfg.token;
