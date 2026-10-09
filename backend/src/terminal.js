@@ -48,9 +48,11 @@ class TerminalSession {
   }
 
   _spawn() {
-    // Multi-tenant: run the shell as the panel user's own Linux account so one
-    // tenant can never read another tenant's files or become root. Admins keep a
-    // root shell only when their account is actually uid 0.
+    // Multi-tenant isolation: a tenant's shell runs as that person's own Linux
+    // account, never as root. node-pty can set uid/gid, but supplementary groups
+    // are inherited from the parent (so a root-run panel would leak group root
+    // membership). setpriv --init-groups resets them, so it wraps the shell when
+    // available. HOME/PWD are rewritten so bash does not try to read /root.
     const opts = {
       name: 'xterm-256color',
       cols: this.cols,
@@ -58,22 +60,43 @@ class TerminalSession {
       cwd: this.cwd,
       env: this.env,
     };
+    let spawnFile = this.shell;
+    let spawnArgs = [];
     const owner = db.findBy('users', 'id', this.ownerId);
     const canDrop = owner && typeof owner.uid === 'number' && owner.uid > 0 &&
       typeof process.getuid === 'function' && process.getuid() === 0;
     if (canDrop) {
-      opts.uid = owner.uid;
-      opts.gid = owner.gid || owner.uid;
-      opts.cwd = owner.home || this.cwd;
-      this.cwd = opts.cwd;
+      const home = owner.home || `/home/${owner.username}`;
+      const uid = owner.uid;
+      const gid = owner.gid || uid;
+      this.cwd = home;
+      opts.cwd = home;
+      opts.env = {
+        ...opts.env,
+        HOME: home,
+        PWD: home,
+        USER: owner.username,
+        LOGNAME: owner.username,
+        SHELL: this.shell,
+      };
+      const setpriv = ['/usr/bin/setpriv', '/bin/setpriv'].find((p) => fs.existsSync(p));
+      if (setpriv) {
+        spawnFile = setpriv;
+        spawnArgs = [`--reuid=${uid}`, `--regid=${gid}`, '--init-groups', this.shell];
+      } else {
+        opts.uid = uid;
+        opts.gid = gid;
+      }
       this.demoted = true;
     }
     try {
-      this.sock = pty.spawn(this.shell, [], opts);
+      this.sock = pty.spawn(spawnFile, spawnArgs, opts);
     } catch (e) {
-      opts.uid = undefined; opts.gid = undefined; // fall back to the panel identity
-      opts.cwd = this.cwd;
-      this.sock = pty.spawn('/bin/sh', [], opts);
+      // last resort: the panel identity itself (never silently escalate)
+      this.demoted = false;
+      this.sock = pty.spawn('/bin/sh', [], {
+        name: 'xterm-256color', cols: this.cols, rows: this.rows, cwd: this.cwd, env: opts.env,
+      });
     }
     this.sock.onData((data) => this._onData(data));
     this.sock.onExit(({ exitCode }) => {
