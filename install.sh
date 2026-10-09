@@ -339,15 +339,21 @@ install_node() {
 # ---------- fetch the verified asset (GitHub API first: never serves a stale copy) ----------
 # GitHub REST API requires no token for public repos and always returns the current
 # release asset, unlike raw.githubusercontent / jsDelivr which cache for minutes.
-api_asset_id() {
+# Prints "<asset_id>|<sha256-from-digest>". The digest lives in the same API
+# response as the asset id, so the checksum can never come from a different
+# (cached) revision than the bytes we download.
+api_asset_info() {
   "$NODE_BIN" -e '
     let d = "";
     process.stdin.on("data", c => d += c).on("end", () => {
       try {
         const rel = JSON.parse(d);
         const a = (rel.assets || []).find(x => x.name === process.argv[1]);
-        process.stdout.write(a ? String(a.id) : "");
-      } catch { process.stdout.write(""); }
+        if (!a) return process.stdout.write("|");
+        const dg = String(a.digest || "");
+        const sha = dg.startsWith("sha256:") ? dg.slice(7) : "";
+        process.stdout.write(a.id + "|" + sha);
+      } catch { process.stdout.write("|"); }
     });
   ' "$1"
 }
@@ -363,9 +369,12 @@ api_file() { # api_file <path-in-repo> -> writes decoded content to stdout
   '
 }
 
-download_asset_api() { # -> 0 on success
-  local id
-  id="$(curl -fsSL "https://api.github.com/repos/$PANEL_REPO/releases/latest" 2>/dev/null | api_asset_id "$ASSET_NAME")"
+download_asset_api() { # -> 0 on success; sets ASSET_DIGEST when available
+  local info id
+  ASSET_DIGEST=""
+  info="$(curl -fsSL "https://api.github.com/repos/$PANEL_REPO/releases/latest?cb=$RANDOM$$" 2>/dev/null | api_asset_info "$ASSET_NAME")"
+  id="${info%%|*}"
+  ASSET_DIGEST="${info##*|}"
   [ -n "$id" ] || return 1
   curl -fsSL -H "Accept: application/octet-stream" \
     -o "$WORK_DIR/api-asset.tar.gz" "https://api.github.com/repos/$PANEL_REPO/releases/assets/$id" || return 1
@@ -450,12 +459,22 @@ download_source() {
   # SHA256 verification (real): compare against SHA256SUMS, with CDN retry
   local sums="$WORK_DIR/SHA256SUMS"
   local sums_ok=0
-  if [ "$FORCE" != "1" ]; then
-    # 1) GitHub API contents endpoint (authoritative)
-    if [ -z "$PANEL_BASE_URL" ] && fetch_checksums_api && grep -q "$ASSET_NAME" "$sums"; then
+  # Preferred: the sha256 GitHub publishes for this exact asset (same API response)
+  if [ "$FORCE" != "1" ] && [ -n "${ASSET_DIGEST:-}" ]; then
+    local actual_now
+    actual_now="$(sha256sum "$tmp" | awk '{print $1}')"
+    if [ "$actual_now" = "$ASSET_DIGEST" ]; then
+      ok "checksum verified (GitHub asset digest): $actual_now"
+      sums_ok=2
+    else
+      die "CHECKSUM MISMATCH vs GitHub asset digest - refusing to install. expected=$ASSET_DIGEST actual=$actual_now"
+    fi
+  fi
+  # fallback checksum sources (only used when the API gave us no digest)
+  if [ "$FORCE" != "1" ] && [ "$sums_ok" != "2" ]; then
+    if [ -z "$PANEL_BASE_URL" ] && fetch_checksums_api && grep -q "$ASSET_NAME" "$WORK_DIR/sums-api.txt" 2>/dev/null; then
       cp -f "$WORK_DIR/sums-api.txt" "$sums"; sums_ok=1
     fi
-    # 2) CDN mirror, 3) raw - both can lag right after a publish
     if [ "$sums_ok" != "1" ]; then
       for attempt in 1 2 3; do
         if curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then sums_ok=1; break; fi
@@ -465,7 +484,9 @@ download_source() {
       done
     fi
   fi
-  if [ "$FORCE" != "1" ] && [ "$sums_ok" = "1" ]; then
+  if [ "$FORCE" != "1" ] && [ "$sums_ok" = "2" ]; then
+    : # already verified against the authoritative asset digest
+  elif [ "$FORCE" != "1" ] && [ "$sums_ok" = "1" ]; then
     local expected="" actual="" attempt=1 verified=0
     start_spinner "verifying SHA256 checksum..."
     while [ "$attempt" -le 3 ]; do
