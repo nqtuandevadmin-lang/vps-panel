@@ -1,4 +1,4 @@
 # SHA256 checksums for release assets
 # verify: sha256sum -c SHA256SUMS
-ad25146a6dae63bc73f135f29391e831eb4403f4cb98be14bee62884582532a7  vps-panel-v1.0.0.tar.gz
+8704d6587fcafc262c4c71dccab192431bd7ace472b5e61a171f552aedc65ba6  vps-panel-v1.0.0.tar.gz
 9c1722c66b1c182fd8f0508a3a77e7809b60f7e4f79a2aa6a4288c3e620c5d90  install.sh
