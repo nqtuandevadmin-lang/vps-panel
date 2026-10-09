@@ -10,6 +10,7 @@
 #   --update        update existing installation (keeps data)
 #   --uninstall     remove panel
 #   --auto          non-interactive mode (CI/CD)
+#   --local <dir>   install from an already-downloaded copy of this repo (no download)
 #   --base-url <u>  serve tarball+SHA256SUMS from any HTTP host (GitLab/Codeberg/S3/self-hosted)
 #   --force         skip checksum verification (not recommended)
 # Env:   PANEL_REPO, PANEL_PORT, PANEL_DOMAIN, PANEL_AUTO=1, ADMIN_PASSWORD, PANEL_BASE_URL
@@ -25,6 +26,7 @@ ASSET_NAME="vps-panel-${PANEL_VERSION}.tar.gz"
 # SHA256SUMS from ANY HTTP location (GitLab, Codeberg, your own VPS, S3, ...).
 # Example: PANEL_BASE_URL=https://gitlab.com/you/vps-panel/-/raw/v1.0.0
 PANEL_BASE_URL="${PANEL_BASE_URL:-}"
+LOCAL_DIR=""                 # --local <dir>: install from a local copy, no download
 INSTALL_DIR="/opt/vps-panel"
 DATA_DIR="$INSTALL_DIR/data"
 LOG_FILE="/var/log/vps-panel-install.log"
@@ -155,6 +157,7 @@ while [ $# -gt 0 ]; do
     --uninstall) MODE="uninstall"; shift ;;
     --auto) AUTO=1; shift ;;
     --force) FORCE=1; shift ;;
+    --local) LOCAL_DIR="$2"; shift 2 ;;
     --base-url) PANEL_BASE_URL="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
@@ -315,6 +318,25 @@ install_node() {
 # ---------------- download & verify source ----------------
 download_source() {
   local tmp="/tmp/vps-panel-src.tar.gz"
+
+  # ---- local mode: copy from a directory that already contains the project ----
+  if [ -n "$LOCAL_DIR" ]; then
+    [ -d "$LOCAL_DIR" ] || die "--local path does not exist: $LOCAL_DIR"
+    [ -f "$LOCAL_DIR/install.sh" ] || die "--local path is not a vps-panel checkout: $LOCAL_DIR"
+    start_spinner "using local source: $LOCAL_DIR ..."
+    rm -rf /tmp/vps-panel-extract
+    mkdir -p /tmp/vps-panel-extract/vps-panel-local
+    tar -cf - -C "$LOCAL_DIR" \
+        --exclude=node_modules --exclude=.git --exclude=data \
+        install.sh README.md LICENSE SHA256SUMS backend frontend systemd nginx test publish.sh 2>/dev/null \
+      | tar -xf - -C /tmp/vps-panel-extract/vps-panel-local
+    stop_spinner
+    EXTRACTED="/tmp/vps-panel-extract/vps-panel-local"
+    [ -f "$EXTRACTED/install.sh" ] || die "local copy is incomplete"
+    ok "local source ready: $EXTRACTED"
+    return 0
+  fi
+
   local release_url branch_url sums_url
   if [ -n "$PANEL_BASE_URL" ]; then
     release_url="${PANEL_BASE_URL%/}/$ASSET_NAME"
