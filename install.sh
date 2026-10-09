@@ -337,25 +337,32 @@ download_source() {
     return 0
   fi
 
-  local release_url branch_url sums_url
+  local release_url branch_url sums_url raw_base
   if [ -n "$PANEL_BASE_URL" ]; then
     release_url="${PANEL_BASE_URL%/}/$ASSET_NAME"
     sums_url="${PANEL_BASE_URL%/}/SHA256SUMS"
     branch_url="$release_url"
+    raw_base="$release_url"
   else
+    raw_base="https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH"
     release_url="https://github.com/$PANEL_REPO/releases/download/$PANEL_VERSION/$ASSET_NAME"
     branch_url="https://github.com/$PANEL_REPO/archive/refs/heads/$PANEL_BRANCH.tar.gz"
-    sums_url="https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/SHA256SUMS"
+    sums_url="${raw_base}/SHA256SUMS"
   fi
   rm -f "$tmp"
   start_spinner "downloading verified release asset..."
-  if curl -fL --retry 3 -o "$tmp" "$release_url"; then
-    SOURCE_KIND="release asset (${ASSET_NAME})"
+  # Order: 1) tarball committed in the repo (raw, always reliable)
+  #        2) release asset (may be unavailable on some GitHub states)
+  #        3) branch tarball (last resort)
+  if curl -fL --retry 2 -o "$tmp" "$raw_base/$ASSET_NAME"; then
+    SOURCE_KIND="repo tarball ($ASSET_NAME)"
+  elif curl -fL --retry 2 -o "$tmp" "$release_url"; then
+    SOURCE_KIND="release asset ($ASSET_NAME)"
   else
-    warn "release asset not found, falling back to branch tarball ($PANEL_BRANCH)"
+    warn "asset download failed, falling back to branch tarball ($PANEL_BRANCH)"
     start_spinner "downloading branch tarball..."
-    curl -fL --retry 3 -o "$tmp" "$branch_url" || die "cannot download source from $branch_url (set PANEL_REPO=<owner>/<repo> or PANEL_BASE_URL=<url>)"
-    SOURCE_KIND="branch tarball (${PANEL_BRANCH})"
+    curl -fL --retry 3 -o "$tmp" "$branch_url" || die "cannot download source (set PANEL_REPO=<owner>/<repo> or PANEL_BASE_URL=<url>)"
+    SOURCE_KIND="branch tarball ($PANEL_BRANCH)"
   fi
   stop_spinner
 

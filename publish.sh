@@ -37,6 +37,20 @@ printf '# SHA256 checksums for release assets\n# verify: sha256sum -c SHA256SUMS
   "$HASH" "$ASSET" "$(sha256sum install.sh | awk '{print $1}')" > SHA256SUMS
 echo "    sha256: $HASH"
 
+# The installer downloads the tarball from the repo itself (raw.githubusercontent),
+# because GitHub's release download URLs are not always immediately reachable.
+git add "$ASSET" SHA256SUMS
+git -c commit.gpgsign=false commit -q -m "release $VERSION: asset + checksums"
+git tag -f "$TAG" -m "VPS Panel $VERSION" >/dev/null
+ASSET_HASH_AFTER_TAG="$(sha256sum "$ASSET" | awk '{print $1}')"
+if [ "$ASSET_HASH_AFTER_TAG" != "$HASH" ]; then
+  echo "    note: tag content changed, re-hashing for SHA256SUMS"
+  printf '# SHA256 checksums for release assets\n# verify: sha256sum -c SHA256SUMS\n%s  %s\n%s  install.sh\n' \
+    "$ASSET_HASH_AFTER_TAG" "$ASSET" "$(sha256sum install.sh | awk '{print $1}')" > SHA256SUMS
+  git add SHA256SUMS
+  git -c commit.gpgsign=false commit -q -m "SHA256SUMS for $VERSION"
+fi
+
 api() { curl -fsSL -H "Authorization: token $TOKEN" "$@"; }
 
 OWNER="${REPO_SLUG%%/*}"
@@ -61,20 +75,24 @@ REL_ID=$(api -X POST -H "Content-Type: application/json" \
   | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*') || REL_ID=""
 
 if [ -n "$REL_ID" ]; then
-  # delete an existing asset with the same name, then upload
-  api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" \
-    | grep -o '"id": *[0-9]*' | grep -o '[0-9]*' | while read -r aid; do
+  # remove an existing asset with the same name (best effort, never fatal)
+  api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" 2>/dev/null \
+    | grep -o '"id": *[0-9]*' | grep -o '[0-9]*' | grep -v '^$' | while read -r aid; do
       curl -fsSL -X DELETE -H "Authorization: token $TOKEN" \
         "https://api.github.com/repos/$REPO_SLUG/releases/assets/$aid" >/dev/null 2>&1 || true
-    done
-  curl -fsSL -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/octet-stream" \
-    --data-binary "@$ASSET" \
-    "https://uploads.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets?name=$ASSET" >/dev/null
-  echo "    asset uploaded"
+    done || true
+  # upload (best effort: the repo-committed tarball is the primary install source)
+  if curl -fsSL -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/octet-stream" \
+      --data-binary "@$ASSET" \
+      "https://uploads.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets?name=$ASSET" >/dev/null 2>&1; then
+    echo "    release asset uploaded"
+  else
+    echo "    WARNING: release asset upload failed (install still works via raw tarball)"
+  fi
 fi
 
-git add SHA256SUMS 2>/dev/null || true
-git -c commit.gpgsign=false commit -q -m "update SHA256SUMS for $TAG" 2>/dev/null || true
+
+
 
 rm -f "$ASSET"
 
