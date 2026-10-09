@@ -366,30 +366,39 @@ download_source() {
   fi
   stop_spinner
 
-  # SHA256 verification (real): compare against SHA256SUMS
+  # SHA256 verification (real): compare against SHA256SUMS, with CDN retry
   local sums="/tmp/vps-panel-SHA256SUMS"
   if [ "$FORCE" != "1" ] && curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then
+    local expected="" actual="" attempt=1 verified=0
     start_spinner "verifying SHA256 checksum..."
-    local expected actual
-    expected="$(grep -F "$ASSET_NAME" "$sums" | head -1 | awk '{print $1}')"
-    actual="$(sha256sum "$tmp" | awk '{print $1}')"
-    if [ -n "$expected" ] && [ "$expected" = "$actual" ]; then
-      ok "checksum verified: $actual ($ASSET_NAME)"
-    elif [ -z "$expected" ]; then
-      warn "SHA256SUMS has no entry for $ASSET_NAME - downloaded from $SOURCE_KIND"
-      if [ "$SOURCE_KIND" != "release asset ($ASSET_NAME)" ]; then
-        die "refusing unverifiable download: SHA256SUMS entry missing. Use --force to override."
+    while [ "$attempt" -le 3 ]; do
+      expected="$(grep -F "$ASSET_NAME" "$sums" | head -1 | awk '{print $1}')"
+      actual="$(sha256sum "$tmp" | awk '{print $1}')"
+      [ -n "$expected" ] && [ "$expected" = "$actual" ] && { verified=1; break; }
+      if [ "$attempt" -lt 3 ]; then
+        # a stale CDN copy is the most likely cause: refetch everything fresh
+        stop_spinner
+        warn "checksum mismatch (attempt $attempt/3) - refetching to rule out a stale CDN copy"
+        sleep 2
+        curl -fsSL -o "$sums" "${sums_url}?cb=$RANDOM$$" 2>/dev/null || true
+        curl -fL --retry 2 -o "$tmp" "${raw_base:-$branch_url}/$ASSET_NAME?cb=$RANDOM$$" 2>/dev/null \
+          || curl -fL --retry 2 -o "$tmp" "$branch_url" 2>/dev/null || true
+        start_spinner "verifying SHA256 checksum..."
       fi
-      warn "could not verify checksum of the release asset - re-run with --force to skip"
-    else
-      die "CHECKSUM MISMATCH - possible tampering! expected=$expected actual=$actual"
-    fi
+      attempt=$((attempt + 1))
+    done
     stop_spinner
+    if [ "$verified" = "1" ]; then
+      ok "checksum verified: $actual"
+    elif [ -z "$expected" ]; then
+      die "SHA256SUMS has no entry for $ASSET_NAME. Publish a proper release, or re-run with --force to skip verification."
+    else
+      die "CHECKSUM MISMATCH after 3 attempts - refusing to install. expected=$expected actual=$actual"
+    fi
   elif [ "$FORCE" = "1" ]; then
     warn "--force: checksum verification skipped"
   else
-    warn "SHA256SUMS not found - cannot verify download. Aborting (use --force to override)."
-    die "unverifiable download rejected"
+    die "could not fetch $sums_url - cannot verify download. Re-run with --force to skip verification."
   fi
 
   rm -rf /tmp/vps-panel-extract
