@@ -33,7 +33,7 @@ git tag -f "$TAG" -m "VPS Panel $VERSION"
 echo "==> building $ASSET"
 # exclude any previously published asset so the tarball cannot embed itself
 git archive --format=tar.gz --prefix="vps-panel-${VERSION}/" "$TAG" \
-  -- . ':(exclude)vps-panel-*.tar.gz' -o "$ASSET"
+  -- . ':(exclude)vps-panel-*.tar.gz' --output "$ASSET"
 HASH="$(sha256sum "$ASSET" | awk '{print $1}')"
 printf '# SHA256 checksums for release assets\n# verify: sha256sum -c SHA256SUMS\n%s  %s\n%s  install.sh\n' \
   "$HASH" "$ASSET" "$(sha256sum install.sh | awk '{print $1}')" > SHA256SUMS
