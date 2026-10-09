@@ -52,8 +52,8 @@
         </svg>
         <span>VPS Panel</span>
       </div>
-      <h1 class="hero-title">Your server.<br>One link away.</h1>
-      <p class="hero-sub">Real PTY terminal, file manager, services, firewall and backups - isolated per account.</p>
+      <h1 class="hero-title" data-i18n="auth.heroTitle" data-i18n-html>Your server.<br>One link away.</h1>
+      <p class="hero-sub" data-i18n="auth.heroSub">Real PTY terminal, file manager, services, firewall and backups.</p>
       <ul class="hero-list">
         <li class="hero-item"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5l6 7-6 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="19" x2="20" y2="19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>Real terminal with vim, htop, tmux</span></li>
         <li class="hero-item"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 3h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>File manager with upload and editor</span></li>
@@ -69,26 +69,26 @@
     <!-- form side -->
     <div class="auth-card" role="region" aria-label="Account access">
       <div class="auth-tabs" role="tablist" aria-label="Sign in or create account">
-        <button class="auth-tab is-active" data-auth-tab="login" role="tab" aria-selected="true">Sign in</button>
-        <button class="auth-tab" data-auth-tab="signup" role="tab" aria-selected="false" id="signup-tab">Create account</button>
+        <button class="auth-tab is-active" data-auth-tab="login" role="tab" aria-selected="true" data-i18n="auth.signin">Sign in</button>
+        <button class="auth-tab" data-auth-tab="signup" role="tab" aria-selected="false" id="signup-tab" data-i18n="auth.signup">Create account</button>
         <span class="auth-tab-ink" aria-hidden="true"></span>
       </div>
 
       <!-- invite banner -->
       <div id="invite-banner" class="invite-banner" hidden>
         <svg class="ic" viewBox="0 0 24 24"><path d="M20 12v8H4v-8M2 8h20v4H2zM12 16a4 4 0 100-8 4 4 0 000 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-        <div><strong>Invite accepted</strong><span id="invite-detail"></span></div>
+        <div><strong data-i18n="auth.inviteOk">Invite accepted</strong><span id="invite-detail"></span></div>
       </div>
 
       <!-- sign in -->
       <form class="auth-pane is-active" id="login-form" data-auth-pane="login" autocomplete="on">
         <div class="pane-anim">
           <label class="field">
-            <span class="field-label">Username</span>
+            <span class="field-label" data-i18n="auth.username">Username</span>
             <input id="login-user" name="username" type="text" required minlength="3" maxlength="32" autocomplete="username" autofocus>
           </label>
           <label class="field">
-            <span class="field-label">Password</span>
+            <span class="field-label" data-i18n="auth.password">Password</span>
             <span class="pw-wrap">
               <input id="login-pass" name="password" type="password" required minlength="6" autocomplete="current-password">
               <button type="button" class="pw-toggle" data-pw-toggle="login-pass" aria-label="Show password">
@@ -97,14 +97,14 @@
             </span>
           </label>
           <label class="field" id="totp-field" hidden>
-            <span class="field-label">2FA code</span>
+            <span class="field-label" data-i18n="auth.twofa">2FA code</span>
             <input id="login-totp" name="totp" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
           </label>
           <div id="login-error" class="form-error shake" role="alert" hidden></div>
           <button class="btn btn-primary btn-block btn-lg" type="submit" id="login-btn">
-            <span class="btn-label">Sign in</span>
+            <span class="btn-label" data-i18n="auth.signinBtn">Sign in</span>
           </button>
-          <p class="auth-swap">No account yet? <button type="button" class="link-btn" data-goto="signup">Create one</button></p>
+          <p class="auth-swap"><span data-i18n="auth.noAccount">No account yet?</span> <button type="button" class="link-btn" data-goto="signup" data-i18n="auth.createOne">Create one</button></p>
         </div>
       </form>
 
@@ -112,16 +112,16 @@
       <form class="auth-pane" id="signup-form" data-auth-pane="signup" autocomplete="on">
         <div class="pane-anim">
           <label class="field">
-            <span class="field-label">Username</span>
+            <span class="field-label" data-i18n="auth.username">Username</span>
             <input id="signup-user" name="username" type="text" required minlength="3" maxlength="32" pattern="[a-zA-Z][a-zA-Z0-9_-]{2,31}" autocomplete="username">
             <span class="field-hint">Lowercase letters, numbers, - and _ . Also your system account.</span>
           </label>
           <label class="field">
-            <span class="field-label">Email</span>
+            <span class="field-label" data-i18n="auth.email">Email</span>
             <input id="signup-email" name="email" type="email" required autocomplete="email">
           </label>
           <label class="field">
-            <span class="field-label">Password</span>
+            <span class="field-label" data-i18n="auth.password">Password</span>
             <span class="pw-wrap">
               <input id="signup-pass" name="password" type="password" required minlength="12" autocomplete="new-password">
               <button type="button" class="pw-toggle" data-pw-toggle="signup-pass" aria-label="Show password">
@@ -129,13 +129,13 @@
               </button>
             </span>
             <div class="strength-meter" id="strength"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
-            <span class="field-hint" id="strength-text">At least 12 characters, upper + lower + digit + symbol.</span>
+            <span class="field-hint" id="strength-text"><span data-i18n="auth.hint">At least 12 characters, upper + lower + digit + symbol.</span>
           </label>
           <div id="signup-error" class="form-error shake" role="alert" hidden></div>
           <button class="btn btn-primary btn-block btn-lg" type="submit" id="signup-btn">
-            <span class="btn-label">Create my account</span>
+            <span class="btn-label" data-i18n="auth.signupBtn">Create my account</span>
           </button>
-          <p class="auth-swap">Already registered? <button type="button" class="link-btn" data-goto="login">Sign in</button></p>
+          <p class="auth-swap"><span data-i18n="auth.hasAccount">Already registered?</span> <button type="button" class="link-btn" data-goto="login" data-i18n="auth.signinNow">Sign in</button></p>
         </div>
       </form>
     </div>
@@ -156,13 +156,14 @@
       <span class="brand-text">VPS Panel</span>
     </div>
     <nav class="nav" id="nav">
-      <a class="nav-item" data-view="dashboard" href="#/dashboard"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Dashboard</span></a>
+      <a class="nav-item" data-view="nodes" href="#/nodes"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="18" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="7.5" r="1.1" fill="currentColor"/><circle cx="7" cy="16.5" r="1.1" fill="currentColor"/></svg><span data-i18n="nav.nodes">VPS Servers</span></a>
+      <a class="nav-item" data-view="dashboard" href="#/dashboard"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span data-i18n="nav.dashboard">Dashboard</span></a>
       <a class="nav-item" data-view="terminal" href="#/terminal"><svg class="icon" viewBox="0 0 24 24"><path d="M4 5l6 7-6 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="19" x2="20" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Terminal</span></a>
-      <a class="nav-item" data-view="files" href="#/files"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 3h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Files</span></a>
+      <a class="nav-item" data-view="files" href="#/files"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 3h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span data-i18n="nav.files">Files</span></a>
       <a class="nav-item" data-view="processes" href="#/processes"><svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Processes</span></a>
-      <a class="nav-item" data-view="services" href="#/services"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Services</span></a>
-      <a class="nav-item" data-view="network" href="#/network"><svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="19" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.3 10.8l9.4-4.6M7.3 13.2l9.4 4.6" stroke="currentColor" stroke-width="2"/></svg><span>Network</span></a>
-      <a class="nav-item" data-view="disks" href="#/disks"><svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Disks</span></a>
+      <a class="nav-item" data-view="services" href="#/services"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span data-i18n="nav.services">Services</span></a>
+      <a class="nav-item" data-view="network" href="#/network"><svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="19" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.3 10.8l9.4-4.6M7.3 13.2l9.4 4.6" stroke="currentColor" stroke-width="2"/></svg><span data-i18n="nav.network">Network</span></a>
+      <a class="nav-item" data-view="disks" href="#/disks"><svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span data-i18n="nav.disks">Disks</span></a>
       <div class="nav-group">Admin</div>
       <a class="nav-item" data-view="users" href="#/users"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Panel Users</span></a>
       <a class="nav-item" data-view="sysusers" href="#/sysusers"><svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 20c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M21.5 20c0-2.6-1.7-4.4-4-5.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>System Users</span></a>
@@ -198,6 +199,7 @@
         <svg class="icon icon-moon" viewBox="0 0 24 24"><path d="M20 13.5A8 8 0 1110.5 4 6.5 6.5 0 0020 13.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
       </button>
       <div class="topbar-actions">
+        <button class="icon-btn" id="lang-toggle" aria-label="Language" title="Language">EN</button>
         <button class="icon-btn" id="bell-btn" aria-label="Notifications" title="Notifications">
           <svg class="icon" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 19a2 2 0 004 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <span class="badge" id="notif-badge" hidden></span>
@@ -240,9 +242,11 @@
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
-<script src="/js/app.js?v=1.1.0"></script>
-<script src="/js/invites-view.js?v=1.1.0"></script>
-<script src="/js/terminal.js?v=1.1.0"></script>
+<script src="/js/i18n.js?v=1.2.0"></script>
+<script src="/js/app.js?v=1.2.0"></script>
+<script src="/js/nodes-view.js?v=1.2.0"></script>
+<script src="/js/invites-view.js?v=1.2.0"></script>
+<script src="/js/terminal.js?v=1.2.0"></script>
 <script>
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>

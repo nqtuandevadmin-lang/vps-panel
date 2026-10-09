@@ -201,3 +201,10 @@
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .auth-bg .orb, .grid-lines { animation: none !important; }
 }
+/* ---------- login is a full page, never shown next to the dashboard ---------- */
+.auth-screen[hidden] { display: none !important; }
+body:not(.app-active) .app-shell { display: none !important; }
+body.app-active .auth-screen { display: none !important; }
+.app-shell { animation: shellIn .45s var(--ease) both; }
+@keyframes shellIn { from { opacity: 0; transform: scale(.995); } }
+body:not(.app-active) { overflow: hidden; }

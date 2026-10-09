@@ -241,8 +241,10 @@ function renderView(view) {
   const root = $('#view-root');
   root.innerHTML = skeleton(3, 120);
   const fn = VIEWS[view];
+  if (window.i18n) window.i18n.apply();
   if (fn && fn.load) {
-    fn.load(root).then(() => { if (fn.after) fn.after(root); }).catch(e => { root.innerHTML = emptyState('Failed to load', e.message); });
+    fn.load(root).then(() => { if (fn.after) fn.after(root); if (window.i18n) window.i18n.apply(); })
+      .catch(e => { root.innerHTML = emptyState('Failed to load', e.message); });
   } else if (fn) {
     fn(root);
   }
@@ -252,7 +254,14 @@ window.addEventListener('hashchange', () => { const v = location.hash.replace('#
 /* ---------- Login / logout ---------- */
 function logout() {
   store.token = ''; store.refresh = ''; store.user = ''; store.csrf = '';
-  $('#app-shell').hidden = true; $('#login-screen').hidden = false;
+  // hard reset: the app shell is fully torn down so nothing shows behind the login page
+  $('#app-shell').hidden = true;
+  $('#app-shell').innerHTML = '';
+  location.hash = '';
+  history.replaceState(null, '', '/');
+  $('#login-screen').hidden = false;
+  document.body.classList.remove('app-active');
+  initAuthScreen();
 }
 
 /* ================= AUTH SCREEN ================= */
@@ -645,19 +654,19 @@ VIEWS.dashboard = {
 VIEWS.terminal = {
   load(root) {
     root.innerHTML = `
-      <div class="view-head"><h2>Terminal</h2><div class="spacer"></div>
+      <div class="view-head"><h2 data-i18n="term.title">Terminal</h2><div class="spacer"></div>
         <span class="pill info" id="term-status"><span class="dot info"></span>connecting</span>
       </div>
       <div class="card term-card">
         <div class="term-toolbar">
-          <button class="btn btn-sm" id="term-new">New session</button>
+          <button class="btn btn-sm" id="term-new" data-i18n="term.newSession">New session</button>
           <button class="btn btn-sm btn-ghost" id="term-detach">Detach (keep alive)</button>
-          <button class="btn btn-sm btn-ghost" id="term-reconnect">Reconnect</button>
+          <button class="btn btn-sm btn-ghost" id="term-reconnect" data-i18n="term.reconnect">Reconnect</button>
           <span class="sep"></span>
           <button class="btn btn-sm btn-ghost" id="term-record">Record</button>
           <button class="btn btn-sm btn-ghost" id="term-copy">Copy</button>
           <button class="btn btn-sm btn-ghost" id="term-paste">Paste</button>
-          <button class="btn btn-sm btn-ghost" id="term-kill" style="color:var(--err)">Kill</button>
+          <button class="btn btn-sm btn-ghost" id="term-kill" data-i18n="term.kill" style="color:var(--err)">Kill</button>
           <span class="sep"></span>
           <select id="term-size" class="btn btn-sm" style="border:1px solid var(--border)">
             <option value="auto">Auto size</option>

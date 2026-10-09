@@ -249,21 +249,13 @@ create_swap() {
 }
 check_port() {
   local port="$1"
-  if command -v ss >/dev/null; then
-    if ss -tuln 2>/dev/null | grep -qE "[:.]$port\b"; then
-      return 1
-    fi
-  elif command -v netstat >/dev/null; then
-    if netstat -tuln 2>/dev/null | grep -qE "[:.]$port\b"; then
-      return 1
-    fi
-  else
-    # /proc fallback
-    local hexport
-    hexport="$(printf '%04X' "$port")"
-    if grep -qE ".*:$hexport .* 0[0-9A-F]{13}" /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
-      return 1
-    fi
+  local hexport
+  hexport="$(printf '%04X' "$port")"
+  # Authoritative check: /proc/net/tcp{,6} state 0A == LISTEN.
+  # Counting TIME_WAIT (06) or SYN_SENT sockets would report a false "port busy".
+  if awk -v p=":$hexport" '$4 == "0A" && $2 ~ p"$" { found=1 } END { exit !found }' \
+       /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+    return 1
   fi
   return 0
 }

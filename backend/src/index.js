@@ -20,6 +20,7 @@ const authRoutes = require('./routes/auth');
 const systemRoutes = require('./routes/system');
 const fileRoutes = require('./routes/files');
 const opsRoutes = require('./routes/ops');
+const nodesMod = require('./routes/nodes');
 
 // Frontend location resolution order:
 //   1. PANEL_FRONTEND env (explicit override)
@@ -126,6 +127,41 @@ function startServer() {
     return reply.code(503).send('VPS Panel API is running, but the frontend directory is missing. Expected: ' + FRONTEND_DIR);
   });
 
+  // /connect.sh?t=TOKEN -> the bootstrap script with this token baked in
+  app.get('/connect.sh', async (req, reply) => {
+    const tplPath = [
+      path.join(ROOT, 'agent', 'connect.sh'),
+      path.resolve(__dirname, '..', '..', 'agent', 'connect.sh'),
+    ].find(p => fs.existsSync(p)) || '';
+    const token = String(req.query?.t || '');
+    let tpl;
+    try { tpl = fs.readFileSync(tplPath, 'utf8'); }
+    catch { return reply.code(500).send('# agent template missing'); }
+    // the agent id is derived from the token so retries reuse the same node
+    const nodeId = require('crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
+    const base = `${req.protocol}://${req.host}`;
+    const script = tpl
+      .replaceAll('__PANEL_BASE__', base)
+      .replaceAll('__TOKEN__', token)
+      .replaceAll('__NODE_ID__', nodeId)
+      .replaceAll('__AGENT_URL__', `${base}/agent.js`);
+    reply.header('Content-Type', 'text/x-shellscript; charset=utf-8');
+    reply.header('Cache-Control', 'no-store');
+    reply.send('#!/usr/bin/env bash\n' + script);
+  });
+
+  // the agent program itself
+  app.get('/agent.js', async (req, reply) => {
+    const p = path.join(require('path').resolve(__dirname, '..', '..'), 'agent', 'agent.js');
+    const alt = path.join(ROOT, 'agent', 'agent.js');
+    const file = fs.existsSync(p) ? p : alt;
+    try {
+      reply.header('Content-Type', 'application/javascript; charset=utf-8');
+      reply.header('Cache-Control', 'no-store');
+      reply.send(fs.readFileSync(file, 'utf8'));
+    } catch { reply.code(404).send('agent.js not found'); }
+  });
+
   // global hooks
   app.addHook('onRequest', (req, reply, next) => { mw.securityHeaders(req, reply, next); });
   app.addHook('onRequest', (req, reply, next) => { mw.ipFilter(req, reply, next); });
@@ -158,6 +194,7 @@ function startServer() {
     systemRoutes(a, { authMw: mw.authenticate, metrics });
     fileRoutes(a, { authMw: mw.authenticate, csrfMw: mw.csrf });
     opsRoutes(a, { authMw: mw.authenticate, csrfMw: mw.csrf, wsClients });
+    nodesMod.nodeRoutes(a, { authMw: mw.authenticate, csrfMw: mw.csrf });
   }, { prefix: '/api/v1' });
 
   // OpenAPI-ish docs (real API documentation)
@@ -194,9 +231,10 @@ function startServer() {
     },
   }));
 
-  // WebSocket terminal
+  // WebSocket endpoints: browser terminal + remote-node agents
   const server = app.server;
-  wssRef = terminal.attachWs(server, app);
+  nodesMod.attachAgentWs(server);
+  wssRef = terminal.attachWs(server, { nodes: nodesMod, auth });
 
   // metrics sampler
   const sampler = setInterval(() => metrics.push(), 5000).unref();
@@ -212,7 +250,7 @@ function startServer() {
   const shutdown = async (sig) => {
     app.log.info(`received ${sig}, shutting down`);
     clearInterval(sampler);
-    for (const s of terminal.sessions.values()) s.dispose();
+    for (const n of nodesMod.nodes.values()) { try { n.ws.close(); } catch { /* ignore */ } }
     await app.close();
     process.exit(0);
   };
