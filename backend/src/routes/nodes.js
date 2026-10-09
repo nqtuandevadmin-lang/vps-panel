@@ -114,8 +114,9 @@ async function nodeRoutes(app, opts) {
     const out = [...nodes.values()].map(n => ({
       id: n.id, name: n.meta.name, os: n.meta.os, arch: n.meta.arch,
       ip: n.meta.ip, provider: n.meta.provider, cpu: n.meta.cpu, mem: n.meta.mem,
+      disk: n.meta.disk, cores: n.meta.cores,
       connectedAt: n.connectedAt, lastSeen: n.lastSeen, sessions: n.sessions || 0,
-      agentVersion: n.meta.agentVersion,
+      agentVersion: n.meta.agentVersion, online: true,
     }));
     const saved = db.coll('nodes').map(n => ({ ...n, online: nodes.has(n.id) }));
     const merged = saved.length ? saved.map(s => {
@@ -154,23 +155,27 @@ function attachAgentWs(server) {
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname !== '/ws/agent') return;  // /ws/terminal is owned by terminal.js
+
+    const nodeId = url.searchParams.get('node') || '';
+    const token = url.searchParams.get('token') || '';
+    const rec = db.findBy('connectTokens', 'token', token);
+
+    // Authenticate BEFORE completing the handshake so a bad token gets a real 401.
+    if (!rec || rec.revoked || rec.expiresAt < Date.now()) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    // The token binds to the first node that uses it. Later reconnects from the
+    // same node (network blips, reboots) keep working; another node is refused.
+    if (rec.nodeId && rec.nodeId !== nodeId) {
+      socket.write('HTTP/1.1 409 Already In Use\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
     req.__panelWsHandled = true;
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const nodeId = url.searchParams.get('node') || '';
-      const token = url.searchParams.get('token') || '';
-      const rec = db.findBy('connectTokens', 'token', token);
-      if (!rec || rec.revoked || rec.expiresAt < Date.now()) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        try { ws.close(); } catch { /* ignore */ }
-        return;
-      }
-      // The token binds to the first node that uses it. Later reconnects from the
-      // same node (network blips, reboots) keep working; another node is refused.
-      if (rec.nodeId && rec.nodeId !== nodeId) {
-        socket.write('HTTP/1.1 409 Already In Use\r\n\r\n');
-        try { ws.close(); } catch { /* ignore */ }
-        return;
-      }
       rec.nodeId = nodeId;
       rec.usedAt = rec.usedAt || Date.now();
       rec.ownerId = rec.ownerId || rec.createdBy || null;
@@ -203,6 +208,7 @@ function handleAgentMessage(node, raw) {
       const existing = db.findBy('nodes', 'id', node.id);
       if (existing) Object.assign(existing, { ...node.meta, lastSeen: Date.now(), online: true });
       else db.insert('nodes', { id: node.id, name: m.meta?.name || node.id, ...node.meta, lastSeen: Date.now(), online: true });
+      db.save();
       db.notify('node', 'VPS connected', `${m.meta?.name || node.id} is now connected`);
       return;
     case 'pty-data': case 'pty-exit': case 'pty-created': case 'fs-result': case 'cmd-result': case 'result': {
