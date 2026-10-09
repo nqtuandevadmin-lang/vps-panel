@@ -153,7 +153,8 @@ function attachAgentWs(server) {
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://localhost');
-    if (url.pathname !== '/ws/agent') { return; } // other paths handled elsewhere
+    if (url.pathname !== '/ws/agent') return;  // /ws/terminal is owned by terminal.js
+    req.__panelWsHandled = true;
     wss.handleUpgrade(req, socket, head, (ws) => {
       const nodeId = url.searchParams.get('node') || '';
       const token = url.searchParams.get('token') || '';

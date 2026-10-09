@@ -239,6 +239,12 @@ function startServer() {
   // WebSocket endpoints: browser terminal + remote-node agents
   const server = app.server;
   nodesMod.attachAgentWs(server);
+  // safety net: destroy upgrade sockets no handler claimed
+  server.prependListener('upgrade', (req, socket) => {
+    setTimeout(() => {
+      if (!req.__panelWsHandled && !socket.destroyed) socket.destroy();
+    }, 1000);
+  });
   wssRef = terminal.attachWs(server, { nodes: nodesMod, auth });
 
   // metrics sampler

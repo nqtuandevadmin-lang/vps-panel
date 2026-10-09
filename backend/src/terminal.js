@@ -13,7 +13,9 @@ function attachWs(server, deps = {}) {
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://localhost');
-    if (url.pathname !== '/ws/terminal') { socket.destroy(); return; }
+    // Another handler (the agent endpoint) may own this path: claim it and let go.
+    if (url.pathname !== '/ws/terminal') return;
+    req.__panelWsHandled = true;
 
     const token = url.searchParams.get('token') || '';
     const payload = deps.auth ? deps.auth.verifyAccess(token) : null;
