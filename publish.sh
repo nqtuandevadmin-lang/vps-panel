@@ -87,8 +87,11 @@ if [ -z "$REL_ID" ]; then
 fi
 
 # remove any asset with the same name so the new one is served (idempotent republish)
-api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" 2>/dev/null \
-  | tr ',' '\n' | grep -B2 "\"name\":\"$ASSET\"" | grep -o '"id":[0-9]*' | grep -o '[0-9]*' | sort -u | while read -r aid; do
+{ api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" 2>/dev/null \
+  | tr '{' '\n' \
+  | grep -F "\"name\":\"$ASSET\"" \
+  | grep -o '"id":[0-9]*' | grep -o '[0-9]*' || true; } | sort -u | while read -r aid; do
+    [ -n "$aid" ] || continue
     echo "    removing old asset id $aid"
     curl -fsSL -X DELETE -H "Authorization: token $TOKEN" \
       "https://api.github.com/repos/$REPO_SLUG/releases/assets/$aid" >/dev/null 2>&1 || true
