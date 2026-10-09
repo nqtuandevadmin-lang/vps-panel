@@ -159,11 +159,22 @@ function attachAgentWs(server) {
       const nodeId = url.searchParams.get('node') || '';
       const token = url.searchParams.get('token') || '';
       const rec = db.findBy('connectTokens', 'token', token);
-      if (!rec || tokenState(rec) !== 'used' || rec.nodeId !== nodeId) {
+      if (!rec || rec.revoked || rec.expiresAt < Date.now()) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        ws.close();
+        try { ws.close(); } catch { /* ignore */ }
         return;
       }
+      // The token binds to the first node that uses it. Later reconnects from the
+      // same node (network blips, reboots) keep working; another node is refused.
+      if (rec.nodeId && rec.nodeId !== nodeId) {
+        socket.write('HTTP/1.1 409 Already In Use\r\n\r\n');
+        try { ws.close(); } catch { /* ignore */ }
+        return;
+      }
+      rec.nodeId = nodeId;
+      rec.usedAt = rec.usedAt || Date.now();
+      rec.ownerId = rec.ownerId || rec.createdBy || null;
+      db.save();
       const node = {
         id: nodeId, ws, meta: {}, connectedAt: Date.now(), lastSeen: Date.now(),
         ownerId: rec.ownerId, sessions: 0, pending: new Map(), sessionMap: new Map(),
