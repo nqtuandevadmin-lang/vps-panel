@@ -201,11 +201,31 @@ async function main() {
 
   // ---- security headers ----
   const home = await fetch('http://127.0.0.1:18099/');
+  const homeHtml = await home.text();
   check('security headers present',
     home.headers.get('x-content-type-options') === 'nosniff' &&
     home.headers.get('x-frame-options') === 'DENY' &&
     !!home.headers.get('content-security-policy'));
-  check('static frontend served', home.status === 200 && (await home.text()).includes('VPS Panel'));
+  // real frontend must be served, not a placeholder
+  check('static frontend served (real HTML)',
+    home.status === 200 && homeHtml.includes('<title>VPS Panel</title>') && homeHtml.includes('id="app-shell"'),
+    `bytes=${homeHtml.length}`);
+  const css = await fetch('http://127.0.0.1:18099/css/app.css');
+  const cssText = await css.text();
+  check('app.css served (design tokens)', css.status === 200 && cssText.includes('--brand:') && cssText.length > 10000, `bytes=${cssText.length}`);
+  const js = await fetch('http://127.0.0.1:18099/js/app.js');
+  const jsText = await js.text();
+  check('app.js served (router+views)', js.status === 200 && jsText.includes('VIEWS.dashboard') && jsText.includes('initTerminal'), `bytes=${jsText.length}`);
+  const term = await fetch('http://127.0.0.1:18099/js/terminal.js');
+  const termText = await term.text();
+  check('terminal.js served (xterm wiring)', term.status === 200 && termText.includes('PanelTerminal'));
+  const manifest = await fetch('http://127.0.0.1:18099/manifest.webmanifest');
+  check('PWA manifest served', manifest.status === 200 && (await manifest.text()).includes('VPS Panel'));
+  const sw = await fetch('http://127.0.0.1:18099/sw.js');
+  check('service worker served', sw.status === 200 && (await sw.text()).includes('addEventListener'));
+  // gzip compression on a real asset
+  const gz = await fetch('http://127.0.0.1:18099/css/app.css', { headers: { 'accept-encoding': 'gzip' } });
+  check('gzip compression active', (gz.headers.get('content-encoding') || '') === 'gzip', `enc=${gz.headers.get('content-encoding')}`);
 
   // ---- graceful shutdown ----
   await app.close();

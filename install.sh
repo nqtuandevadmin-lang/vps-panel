@@ -46,7 +46,14 @@ else
 fi
 
 # ---------------- logging ----------------
-exec > >(tee -a "$LOG_FILE") 2>&1 || true
+LOG_READY=0
+enable_log_file() {
+  mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+  if touch "$LOG_FILE" 2>/dev/null; then
+    exec > >(tee -a "$LOG_FILE") 2>&1 || true
+    LOG_READY=1
+  fi
+}
 log()  { echo -e "${C_CYN}[$(date '+%H:%M:%S')]${C_RST} $*"; }
 ok()   { echo -e "${C_GRN}[ OK ]${C_RST} $*"; }
 warn() { echo -e "${C_YLW}[WARN]${C_RST} $*"; }
@@ -154,6 +161,7 @@ done
 
 # ---------------- root check ----------------
 [ "$EUID" -ne 0 ] && { err "this installer must run as root (use sudo)"; exit 1; }
+enable_log_file
 
 # ---------------- distro & arch detection ----------------
 detect_distro() {
@@ -248,6 +256,7 @@ detect_other_panels() {
   [ -f /usr/bin/cyberpanel ] && found="$found CyberPanel"
   [ -d /usr/local/hestia ] && found="$found Hestia"
   [ -n "$found" ] && warn "other control panels detected:$found - they may conflict on ports 80/443. The panel will use port $PORT by default."
+  return 0
 }
 detect_nginx() {
   if command -v nginx >/dev/null; then
@@ -422,9 +431,11 @@ do_install() {
 EOF
   chmod 600 "$DATA_DIR/config.json"
 
-  # admin user with random password (bcrypt cost 12, hashed in db)
+  # admin user with random password (generated with the SAME policy-checked
+  # generator the backend uses, so create-admin can never reject it)
   if [ -z "$ADMIN_PASS" ]; then
-    ADMIN_PASS="$(tr -dc 'A-Za-z0-9!@#$%&*' < /dev/urandom | head -c 18)"
+    ADMIN_PASS="$(PANEL_ROOT="$INSTALL_DIR" PANEL_DATA="$DATA_DIR" node -e "process.stdout.write(require('$INSTALL_DIR/backend/src/auth').randomPassword(18))")"
+    [ -n "$ADMIN_PASS" ] || die "failed to generate admin password"
   fi
   local_admin_out="$(PANEL_ROOT="$INSTALL_DIR" PANEL_DATA="$DATA_DIR" node "$INSTALL_DIR/backend/tools/create-admin.js" "$ADMIN_USER" "$ADMIN_PASS" 2>&1)" || die "admin creation failed: $local_admin_out"
   ok "admin user created (password bcrypt-hashed, cost 12)"

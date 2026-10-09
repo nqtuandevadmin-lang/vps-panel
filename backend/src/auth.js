@@ -141,10 +141,21 @@ function verifyCsrf(sessionId, token) {
 }
 
 // ---------- random admin ----------
-function randomPassword(len = 16) {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*';
-  const b = crypto.randomBytes(len);
-  return Array.from(b, x => chars[x % chars.length]).join('');
+// Guarantees the password satisfies passwordPolicy(): at least one upper, lower,
+// digit and symbol, regardless of random chance. Cryptographically shuffled.
+const PW_CLASSES = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*?-+='];
+function randomPassword(len = 18) {
+  const len4 = Math.max(8, len);
+  const all = PW_CLASSES.join('');
+  const pick = (set) => set[crypto.randomInt(set.length)];
+  const chars = PW_CLASSES.map(pick); // one from each required class
+  while (chars.length < len4) chars.push(pick(all));
+  // Fisher-Yates with crypto randomness (no bias, no modulo)
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
 }
 
 module.exports = {

@@ -21,7 +21,25 @@ const systemRoutes = require('./routes/system');
 const fileRoutes = require('./routes/files');
 const opsRoutes = require('./routes/ops');
 
-const FRONTEND_DIR = path.join(ROOT, 'frontend');
+// Frontend location resolution order:
+//   1. PANEL_FRONTEND env (explicit override)
+//   2. <install root>/frontend      (production: /opt/vps-panel/frontend)
+//   3. <repo>/frontend              (running from a git checkout: backend/src/../..)
+function resolveFrontendDir() {
+  const fs = require('fs');
+  const path = require('path');
+  const candidates = [
+    process.env.PANEL_FRONTEND,
+    path.join(ROOT, 'frontend'),
+    path.resolve(__dirname, '..', '..', 'frontend'),
+    path.resolve(process.cwd(), 'frontend'),
+  ].filter(Boolean);
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, 'index.html'))) return c;
+  }
+  return candidates[1]; // report the production path in the warning
+}
+const FRONTEND_DIR = resolveFrontendDir();
 
 // ---------- metrics ring (chart history, real data) ----------
 const METRIC_RING = [];
@@ -96,13 +114,16 @@ function startServer() {
   app.register(require('@fastify/compress'), { global: true, threshold: 1024 });
 
   // static frontend
-  if (fs.existsSync(FRONTEND_DIR)) {
+  const HAS_FRONTEND = fs.existsSync(path.join(FRONTEND_DIR, 'index.html'));
+  if (HAS_FRONTEND) {
     app.register(fastifyStatic, { root: FRONTEND_DIR, wildcard: false });
+  } else {
+    app.log.warn(`frontend not found at ${FRONTEND_DIR} - serving API only`);
   }
   app.setNotFoundHandler((req, reply) => {
     if (req.url.startsWith('/api/')) return reply.code(404).send({ error: 'not found' });
-    if (fs.existsSync(path.join(FRONTEND_DIR, 'index.html'))) return reply.sendFile('index.html');
-    return reply.code(200).send('VPS Panel - frontend not found (run from repo root)');
+    if (HAS_FRONTEND) return reply.sendFile('index.html');
+    return reply.code(503).send('VPS Panel API is running, but the frontend directory is missing. Expected: ' + FRONTEND_DIR);
   });
 
   // global hooks
