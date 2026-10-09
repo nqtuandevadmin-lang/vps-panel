@@ -287,14 +287,53 @@ detect_nginx() {
 }
 
 # ---------------- package install with progress ----------------
+# apt can hang forever on a dpkg lock (e.g. an interrupted package install, or a
+# conffile prompt waiting for input). Recover, then always run non-interactively.
+fix_dpkg_state() {
+  local waited=0
+  while [ $waited -lt 60 ]; do
+    if ! fuser "${DPKG_LOCK:-/var/lib/dpkg/lock-frontend}" >/dev/null 2>&1 && \
+       ! (command -v lsof >/dev/null && lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1); then
+      return 0
+    fi
+    [ "$waited" = "0" ] && warn "another apt/dpkg process holds the lock - waiting (up to 60s)"
+    sleep 3
+    waited=$((waited + 3))
+  done
+  warn "dpkg lock still held after 60s - clearing stale locks and continuing"
+  pkill -f 'apt-get' 2>/dev/null || true
+  pkill -f 'dpkg --' 2>/dev/null || true
+  sleep 1
+  rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock 2>/dev/null || true
+}
+
 install_packages() {
   local pkgs=("$@")
   local total=${#pkgs[@]} i=0
-  start_spinner "installing ${total} packages..."
   if [ "$PKG_MGR" = "apt" ]; then
+    fix_dpkg_state
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq >> "$LOG_FILE" 2>&1
-    apt-get install -y -qq "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+    start_spinner "resolving dependencies (${#pkgs[@]} packages)..."
+    # never block on a conffile prompt in a non-interactive run
+    if ! timeout 180 apt-get update -qq -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold >> "$LOG_FILE" 2>&1; then
+      stop_spinner
+      warn "apt-get update failed (offline mirror?) - continuing with the cached package index"
+    fi
+    stop_spinner
+    start_spinner "installing ${total} packages..."
+    if ! timeout 600 apt-get install -y -qq --no-install-recommends \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+        "${pkgs[@]}" >> "$LOG_FILE" 2>&1; then
+      stop_spinner
+      # retry after repairing dpkg state (a half-configured package is common)
+      fix_dpkg_state
+      DEBIAN_FRONTEND=noninteractive dpkg --configure -a >> "$LOG_FILE" 2>&1 || true
+      if ! timeout 600 apt-get install -y -qq --no-install-recommends \
+          -o Dpkg::Options::==--force-confdef -o Dpkg::Options::=--force-confold \
+          "${pkgs[@]}" >> "$LOG_FILE" 2>&1; then
+        die "apt-get install failed - see $LOG_FILE"
+      fi
+    fi
   fi
   stop_spinner
   for p in "${pkgs[@]}"; do
@@ -302,6 +341,7 @@ install_packages() {
     progress $(( i * 100 / total )) "package: $p"
   done
   ok "packages installed: ${pkgs[*]}"
+  return 0
 }
 
 # ---------------- node runtime ----------------
