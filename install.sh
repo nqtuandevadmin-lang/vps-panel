@@ -47,6 +47,7 @@ ADMIN_USER="admin"
 ADMIN_PASS=""
 BACKUP_DIR="/var/backups/vps-panel"
 REQUIRED_DISK_MB=1500
+WORK_DIR=""                      # private scratch dir, created after the root check
 REQUIRED_RAM_MB_EVAL=512   # below this we warn; below 1GB we add swap
 
 # ---------------- colors ----------------
@@ -83,7 +84,7 @@ print_banner() {
       |_|    |_|    |____/ \____/ \____/ |_|
 
    VPS Panel v1.0.0 - Web Control Panel Installer
-   https://github.com/vps-panel/panel
+   https://github.com/nqtuandevadmin-lang/vps-panel
 ============================================================
 EOF
 }
@@ -93,11 +94,12 @@ PROGRESS_WIDTH=40
 progress() { # progress <percent> <label>
   local pct="$1" label="$2"
   local filled=$(( pct * PROGRESS_WIDTH / 100 ))
-  local bar=""
-  for ((i=0; i<filled; i++)); do bar+="="; done
-  for ((i=filled; i<PROGRESS_WIDTH; i++)); do bar+=" "; done
+  local bar="" j
+  for ((j=0; j<filled; j++)); do bar+="="; done
+  for ((j=filled; j<PROGRESS_WIDTH; j++)); do bar+=" "; done
   printf "\r${C_BLU}[${bar}] %3d%%${C_RST} %-40s" "$pct" "$label"
   [ "$pct" -ge 100 ] && printf "\n"
+  return 0   # never let a progress redraw trip `set -e`
 }
 
 spinner_pid=""
@@ -126,16 +128,16 @@ rollback() {
     fi
     mkdir -p "$(dirname "$INSTALL_DIR")"
     tar -xzf "$PRE_UPDATE_BACKUP" -C /opt/ 2>/dev/null || warn "rollback extraction failed - manual restore from $PRE_UPDATE_BACKUP"
-    systemctl restart "$SERVICE" 2>/dev/null || true
+    [ "$SYSTEMD_OK" = "1" ] && systemctl restart "$SERVICE" 2>/dev/null || supervisor_start 2>/dev/null || true
     warn "Rollback done. Previous version restored. Broken copy kept at $INSTALL_DIR.broken"
     return
   fi
   if [ "$MODE" = "install" ] && [ "${#INSTALLED_COMPONENTS[@]}" -gt 0 ]; then
     warn "Rolling back partial installation..."
-    systemctl stop "$SERVICE" 2>/dev/null || true
-    systemctl disable "$SERVICE" 2>/dev/null || true
+    [ "$SYSTEMD_OK" = "1" ] && { systemctl stop "$SERVICE" 2>/dev/null || true; systemctl disable "$SERVICE" 2>/dev/null || true; } || supervisor_stop 2>/dev/null || true
     rm -f "/etc/systemd/system/$SERVICE.service"
-    systemctl daemon-reload 2>/dev/null || true
+    [ "$SYSTEMD_OK" = "1" ] && systemctl daemon-reload 2>/dev/null || true
+    rm -f /usr/local/bin/vps-panel-start /usr/local/bin/vps-panel-stop
     [ "${KEEP_DATA:-0}" != "1" ] && rm -rf "$INSTALL_DIR"
     warn "Rollback complete. Log kept at $LOG_FILE"
   fi
@@ -145,7 +147,7 @@ trap 'on_error $?' ERR
 on_error() {
   local code=$1
   [ "$code" = "0" ] && return 0
-  err "error code $code - see $LOG_FILE"
+  err "error code $code at line $1: ${BASH_COMMAND}"
   rollback
   exit "$code"
 }
@@ -175,11 +177,15 @@ done
 # ---------------- root check ----------------
 [ "$EUID" -ne 0 ] && { err "this installer must run as root (use sudo)"; exit 1; }
 enable_log_file
+# private scratch dir (avoids collisions with stale or foreign-owned files)
+WORK_DIR="$(mktemp -d /tmp/vps-panel-install.XXXXXX)"
+chmod 700 "$WORK_DIR"
 
 # ---------------- distro & arch detection ----------------
 detect_distro() {
   if [ -f /etc/os-release ]; then . /etc/os-release; else die "/etc/os-release not found - unsupported system"; fi
   DISTRO_ID="${ID:-unknown}"; DISTRO_VER="${VERSION_ID:-0}"
+  DISTRO_PRETTY_NAME="${PRETTY_NAME:-${DISTRO_ID} ${DISTRO_VER}}"
   case "$DISTRO_ID" in
     ubuntu)
       awk -v v="$DISTRO_VER" 'BEGIN{exit !(v+0 >= 20.04)}' || die "Ubuntu $DISTRO_VER not supported (need 20.04+)"
@@ -287,8 +293,8 @@ install_packages() {
   start_spinner "installing ${total} packages..."
   if [ "$PKG_MGR" = "apt" ]; then
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq "${pkgs[@]}" >/dev/null
+    apt-get update -qq >> "$LOG_FILE" 2>&1
+    apt-get install -y -qq "${pkgs[@]}" >> "$LOG_FILE" 2>&1
   fi
   stop_spinner
   for p in "${pkgs[@]}"; do
@@ -299,8 +305,10 @@ install_packages() {
 }
 
 # ---------------- node runtime ----------------
+NODE_BIN="$(command -v node 2>/dev/null || echo /usr/bin/node)"
 install_node() {
   if command -v node >/dev/null && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' 2>/dev/null; then
+    NODE_BIN="$(command -v node)"
     ok "Node.js $(node -v) already installed"
     return 0
   fi
@@ -315,13 +323,21 @@ install_node() {
   ln -sf /opt/node20/bin/npm /usr/local/bin/npm
   ln -sf /opt/node20/bin/npx /usr/local/bin/npx
   rm -f "$tmp"
-  ok "Node.js $(node -v) installed ($(node -p 'process.arch'))"
+  export PATH="/usr/local/bin:$PATH"
+  hash -r 2>/dev/null || true
+  NODE_BIN="$(command -v node)"
+  NODE_VER="$("$NODE_BIN" -v 2>/dev/null || echo unknown)"
+  if [ "${NODE_VER#v}" = "${NODE_VER#v}" ] || [ "${NODE_VER#v}" -lt 20 ] 2>/dev/null; then
+    warn "node on PATH is still $NODE_VER - using $NODE_BIN explicitly for the panel"
+  else
+    ok "Node.js $NODE_VER installed at $NODE_BIN ($("$NODE_BIN" -p 'process.arch'))"
+  fi
   INSTALLED_COMPONENTS+=("node20")
 }
 
 # ---------------- download & verify source ----------------
 download_source() {
-  local tmp="/tmp/vps-panel-src.tar.gz"
+  local tmp="$WORK_DIR/vps-panel-src.tar.gz"
   # resolve the CDN mirror lazily so PANEL_REPO set at run time is honoured.
   # The immutable release tag is preferred: its tarball and its SHA256SUMS can
   # never drift apart. Falls back to the branch when the tag is not published.
@@ -338,14 +354,14 @@ download_source() {
     [ -d "$LOCAL_DIR" ] || die "--local path does not exist: $LOCAL_DIR"
     [ -f "$LOCAL_DIR/install.sh" ] || die "--local path is not a vps-panel checkout: $LOCAL_DIR"
     start_spinner "using local source: $LOCAL_DIR ..."
-    rm -rf /tmp/vps-panel-extract
-    mkdir -p /tmp/vps-panel-extract/vps-panel-local
+    rm -rf "$WORK_DIR/extract"
+    mkdir -p "$WORK_DIR/extract/vps-panel-local"
     tar -cf - -C "$LOCAL_DIR" \
         --exclude=node_modules --exclude=.git --exclude=data \
         install.sh README.md LICENSE SHA256SUMS backend frontend systemd nginx test publish.sh 2>/dev/null \
-      | tar -xf - -C /tmp/vps-panel-extract/vps-panel-local
+      | tar -xf - -C "$WORK_DIR/extract/vps-panel-local"
     stop_spinner
-    EXTRACTED="/tmp/vps-panel-extract/vps-panel-local"
+    EXTRACTED="$WORK_DIR/extract/vps-panel-local"
     [ -f "$EXTRACTED/install.sh" ] || die "local copy is incomplete"
     ok "local source ready: $EXTRACTED"
     return 0
@@ -376,21 +392,32 @@ download_source() {
   #        4) branch tarball (last resort)
   if curl -fL --retry 2 -o "$tmp" "$raw_base/$ASSET_NAME"; then
     SOURCE_KIND="verified asset ($ASSET_NAME)"
-  elif curl -fL --retry 2 -o "$tmp" "https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/$ASSET_NAME"; then
+  elif curl -fsSL --retry 2 -o "$tmp" "https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/$ASSET_NAME"; then
     SOURCE_KIND="repo asset ($ASSET_NAME)"
-  elif curl -fL --retry 2 -o "$tmp" "$release_url"; then
+  elif curl -fsSL --retry 2 -o "$tmp" "$release_url"; then
     SOURCE_KIND="release asset ($ASSET_NAME)"
   else
     warn "asset download failed, falling back to branch tarball ($PANEL_BRANCH)"
     start_spinner "downloading branch tarball..."
-    curl -fL --retry 3 -o "$tmp" "$branch_url" || die "cannot download source (set PANEL_REPO=<owner>/<repo> or PANEL_BASE_URL=<url>)"
+    curl -fsSL --retry 3 -o "$tmp" "$branch_url" || die "cannot download source (set PANEL_REPO=<owner>/<repo> or PANEL_BASE_URL=<url>)"
     SOURCE_KIND="branch tarball ($PANEL_BRANCH)"
   fi
   stop_spinner
 
   # SHA256 verification (real): compare against SHA256SUMS, with CDN retry
-  local sums="/tmp/vps-panel-SHA256SUMS"
-  if [ "$FORCE" != "1" ] && curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then
+  local sums="$WORK_DIR/SHA256SUMS"
+  local sums_ok=0
+  if [ "$FORCE" != "1" ]; then
+    for attempt in 1 2 3; do
+      if curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then sums_ok=1; break; fi
+      sleep 3
+      # CDN may be re-indexing right after a release: retry with a cache buster
+      curl -fsSL -o "$sums" "${sums_url}?cb=$RANDOM$$" 2>/dev/null && { sums_ok=1; break; }
+      # last resort: GitHub raw (same content, different edge cache)
+      curl -fsSL -o "$sums" "https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/SHA256SUMS" 2>/dev/null && { sums_ok=1; break; }
+    done
+  fi
+  if [ "$FORCE" != "1" ] && [ "$sums_ok" = "1" ]; then
     local expected="" actual="" attempt=1 verified=0
     start_spinner "verifying SHA256 checksum..."
     while [ "$attempt" -le 3 ]; do
@@ -423,13 +450,91 @@ download_source() {
     die "could not fetch $sums_url - cannot verify download. Re-run with --force to skip verification."
   fi
 
-  rm -rf /tmp/vps-panel-extract
-  mkdir -p /tmp/vps-panel-extract
-  tar -xzf "$tmp" -C /tmp/vps-panel-extract
+  rm -rf "$WORK_DIR/extract"
+  mkdir -p "$WORK_DIR/extract"
+  tar -xzf "$tmp" -C "$WORK_DIR/extract"
   rm -f "$tmp"
-  EXTRACTED="$(find /tmp/vps-panel-extract -maxdepth 1 -mindepth 1 -type d | head -1)"
+  EXTRACTED="$(find "$WORK_DIR/extract" -maxdepth 1 -mindepth 1 -type d | head -1)"
   [ -z "$EXTRACTED" ] && die "downloaded archive is empty"
   ok "source ready: $EXTRACTED"
+}
+
+# ---------------- systemd detection ----------------
+# Minimal VPS and containers often run without systemd as PID 1. Detect that once
+# so every systemctl call in the installer can be guarded.
+SYSTEMD_OK=1
+detect_systemd() {
+  if [ "$(ps -p 1 -o comm= 2>/dev/null)" != "systemd" ]; then SYSTEMD_OK=0; fi
+  if ! systemctl is-system-running >/dev/null 2>&1; then
+    if systemctl --version >/dev/null 2>&1; then SYSTEMD_OK=0; else SYSTEMD_OK=0; fi
+  fi
+  if [ "$SYSTEMD_OK" = "0" ]; then
+    warn "systemd is not running as PID 1 - using supervised fallback (no systemd unit)"
+  fi
+}
+
+panel_enable() {
+  if [ "$SYSTEMD_OK" = "1" ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable "$SERVICE" >/dev/null 2>&1 && ok "systemd service enabled" || warn "systemctl enable failed"
+  else
+    install_supervisor
+  fi
+}
+panel_restart() {
+  if [ "$SYSTEMD_OK" = "1" ]; then systemctl restart "$SERVICE"
+  else supervisor_stop; supervisor_start; fi
+}
+panel_stop() {
+  if [ "$SYSTEMD_OK" = "1" ]; then systemctl stop "$SERVICE" 2>/dev/null || true
+  else supervisor_stop; fi
+}
+panel_health() {
+  for _ in $(seq 1 24); do
+    curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+# ---------------- supervised fallback (no systemd) ----------------
+install_supervisor() {
+  local launcher="/usr/local/bin/vps-panel-start"
+  local stopper="/usr/local/bin/vps-panel-stop"
+  cat > "$launcher" <<EOF
+#!/usr/bin/env bash
+# VPS Panel launcher (supervised fallback used when systemd is unavailable)
+export PANEL_ROOT="$INSTALL_DIR"
+export PANEL_DATA="$DATA_DIR"
+export PANEL_PORT="$PORT"
+cd "$INSTALL_DIR/backend"
+exec "$NODE_BIN" src/index.js >> /var/log/vps-panel.log 2>&1
+EOF
+  cat > "$stopper" <<EOF
+#!/usr/bin/env bash
+pkill -f "node src/index.js" 2>/dev/null && exit 0
+exit 1
+EOF
+  chmod +x "$launcher" "$stopper"
+  if ! grep -q 'vps-panel-start' /etc/crontab 2>/dev/null; then
+    echo "@reboot root $launcher # vps-panel-start" >> /etc/crontab
+  fi
+  ok "supervisor launcher installed: $launcher"
+}
+supervisor_start() {
+  pkill -f 'node src/index.js' 2>/dev/null || true
+  sleep 0.5
+  cd "$INSTALL_DIR/backend"
+  PANEL_ROOT="$INSTALL_DIR" PANEL_DATA="$DATA_DIR" PANEL_PORT="$PORT" PANEL_FILE_ROOT=/home \
+    setsid nohup "$NODE_BIN" src/index.js >> /var/log/vps-panel.log 2>&1 &
+  disown 2>/dev/null || true
+  sleep 1
+  ok "panel started (supervised mode, log: /var/log/vps-panel.log)"
+}
+supervisor_stop() {
+  pkill -f 'node src/index.js' 2>/dev/null || true
+  sleep 0.5
+  ok "panel stopped"
 }
 
 # ---------------- install ----------------
@@ -437,7 +542,7 @@ do_install() {
   log "=== INSTALL MODE ==="
   print_banner
 
-  detect_distro; detect_arch
+  detect_distro; detect_arch; detect_systemd
   ok "detected: $DISTRO_ID $DISTRO_VER ($DISTRO_PRETTY_NAME), arch $ARCH"
   check_disk
   check_ram
@@ -489,7 +594,7 @@ do_install() {
 
   # backend deps
   start_spinner "installing backend dependencies (npm ci)..."
-  (cd "$INSTALL_DIR/backend" && npm install --omit=dev --no-audit --no-fund >/dev/null) || die "npm install failed"
+  (cd "$INSTALL_DIR/backend" && PATH="/usr/local/bin:$PATH" npm install --omit=dev --no-audit --no-fund >> "$LOG_FILE" 2>&1) || die "npm install failed (see $LOG_FILE)"
   stop_spinner
   ok "backend dependencies installed"
   INSTALLED_COMPONENTS+=("npm")
@@ -507,10 +612,10 @@ EOF
   # admin user with random password (generated with the SAME policy-checked
   # generator the backend uses, so create-admin can never reject it)
   if [ -z "$ADMIN_PASS" ]; then
-    ADMIN_PASS="$(PANEL_ROOT="$INSTALL_DIR" PANEL_DATA="$DATA_DIR" node -e "process.stdout.write(require('$INSTALL_DIR/backend/src/auth').randomPassword(18))")"
+    ADMIN_PASS="$(PANEL_ROOT="$INSTALL_DIR" PANEL_DATA="$DATA_DIR" "$NODE_BIN" -e "process.stdout.write(require('$INSTALL_DIR/backend/src/auth').randomPassword(18))")"
     [ -n "$ADMIN_PASS" ] || die "failed to generate admin password"
   fi
-  local_admin_out="$(PANEL_ROOT="$INSTALL_DIR" PANEL_DATA="$DATA_DIR" node "$INSTALL_DIR/backend/tools/create-admin.js" "$ADMIN_USER" "$ADMIN_PASS" 2>&1)" || die "admin creation failed: $local_admin_out"
+  local_admin_out="$(PANEL_ROOT="$INSTALL_DIR" PANEL_DATA="$DATA_DIR" "$NODE_BIN" "$INSTALL_DIR/backend/tools/create-admin.js" "$ADMIN_USER" "$ADMIN_PASS" 2>&1)" || die "admin creation failed: $local_admin_out"
   ok "admin user created (password bcrypt-hashed, cost 12)"
 
   # system user for the service
@@ -524,10 +629,9 @@ EOF
   install -m 644 "$INSTALL_DIR/systemd/vps-panel.service" "/etc/systemd/system/$SERVICE.service"
   sed -i "s|Environment=PANEL_ROOT=.*|Environment=PANEL_ROOT=$INSTALL_DIR|" "/etc/systemd/system/$SERVICE.service"
   sed -i "s|Environment=PANEL_DATA=.*|Environment=PANEL_DATA=$DATA_DIR|" "/etc/systemd/system/$SERVICE.service"
-  systemctl daemon-reload
-  systemctl enable "$SERVICE" >/dev/null 2>&1
-  ok "systemd service enabled"
-  INSTALLED_COMPONENTS+=("systemd")
+  sed -i "s|^ExecStart=.*|ExecStart=$NODE_BIN $INSTALL_DIR/backend/src/index.js|" "/etc/systemd/system/$SERVICE.service"
+  panel_enable
+  INSTALLED_COMPONENTS+=("service")
 
   # fail2ban
   install_fail2ban
@@ -546,13 +650,9 @@ EOF
   fi
 
   # start service
-  systemctl restart "$SERVICE"
-  for _ in $(seq 1 20); do
-    if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then break; fi
-    sleep 0.5
-  done
-  if ! curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-    die "service started but health check failed - check: journalctl -u $SERVICE -n 50"
+  panel_restart
+  if ! panel_health; then
+    die "service started but health check failed - check the log (journalctl -u $SERVICE -n 50 or /var/log/vps-panel.log)"
   fi
   ok "service started and healthy"
 
@@ -687,7 +787,7 @@ setup_ssl() {
 do_update() {
   log "=== UPDATE MODE ==="
   print_banner
-  detect_distro; detect_arch
+  detect_distro; detect_arch; detect_systemd
   [ -d "$INSTALL_DIR" ] || die "no existing installation found at $INSTALL_DIR"
 
   # backup before update (keeps user data safe)
@@ -712,14 +812,14 @@ do_update() {
   rm -rf "$DATA_DIR"
   cp -r /tmp/vps-panel-data-keep "$DATA_DIR"
   rm -rf /tmp/vps-panel-data-keep
-  (cd "$INSTALL_DIR/backend" && npm install --omit=dev --no-audit --no-fund >/dev/null) || die "npm install failed after update"
+  (cd "$INSTALL_DIR/backend" && PATH="/usr/local/bin:$PATH" npm install --omit=dev --no-audit --no-fund >> "$LOG_FILE" 2>&1) || die "npm install failed after update"
   stop_spinner
   ok "files updated (data dir untouched)"
 
-  systemctl daemon-reload
-  systemctl restart "$SERVICE"
+  panel_enable
+  panel_restart
   sleep 2
-  if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+  if panel_health; then
     ok "update successful - panel is running"
     print_summary
   else
@@ -733,15 +833,17 @@ do_update() {
 do_uninstall() {
   log "=== UNINSTALL MODE ==="
   print_banner
+  detect_systemd
   [ -d "$INSTALL_DIR" ] || { err "nothing to uninstall"; exit 0; }
   if [ "$AUTO" != "1" ]; then
     read -r -p "This removes the panel AND its data ($DATA_DIR). Also remove the 'panel' system user? [y/N]: " c
     [ "$c" != "y" ] && [ "$c" != "Y" ] && { echo "aborted"; exit 0; }
   fi
-  systemctl stop "$SERVICE" 2>/dev/null || true
-  systemctl disable "$SERVICE" 2>/dev/null || true
+  panel_stop
+  [ "$SYSTEMD_OK" = "1" ] && systemctl disable "$SERVICE" 2>/dev/null || true
   rm -f "/etc/systemd/system/$SERVICE.service"
-  systemctl daemon-reload
+  [ "$SYSTEMD_OK" = "1" ] && systemctl daemon-reload 2>/dev/null || true
+  rm -f /usr/local/bin/vps-panel-start /usr/local/bin/vps-panel-stop
   rm -rf "$INSTALL_DIR"
   rm -f /etc/fail2ban/jail.d/vps-panel.local /etc/fail2ban/filter.d/vps-panel.conf
   systemctl restart fail2ban 2>/dev/null || true
@@ -772,10 +874,16 @@ print_summary() {
   echo -e "  ${C_BLD}Password:${C_RST}   ${C_YLW}$ADMIN_PASS${C_RST}"
   echo ""
   echo -e "  ${C_BLD}Manage:${C_RST}"
-  echo "    systemctl status $SERVICE      # check status"
-  echo "    systemctl restart $SERVICE     # restart"
-  echo "    systemctl stop $SERVICE        # stop"
-  echo "    journalctl -u $SERVICE -f      # live logs"
+  if [ "$SYSTEMD_OK" = "1" ]; then
+    echo "    systemctl status $SERVICE      # check status"
+    echo "    systemctl restart $SERVICE     # restart"
+    echo "    systemctl stop $SERVICE        # stop"
+    echo "    journalctl -u $SERVICE -f      # live logs"
+  else
+    echo "    vps-panel-start                # start"
+    echo "    vps-panel-stop                 # stop"
+    echo "    tail -f /var/log/vps-panel.log  # live logs"
+  fi
   echo "    tail -f $LOG_FILE              # installer log"
   echo ""
   echo -e "  ${C_BLD}Uninstall:${C_RST}"

@@ -8,9 +8,9 @@ const crypto = require('crypto');
 process.env.PANEL_ROOT = process.env.PANEL_ROOT || '/opt/vps-panel';
 process.env.PANEL_DATA = process.env.PANEL_DATA || path.join(process.env.PANEL_ROOT, 'data');
 
-const { cfg } = require('./src/config');
-const db = require('./src/db');
-const auth = require('./src/auth');
+const { cfg } = require('../src/config');
+const db = require('../src/db');
+const auth = require('../src/auth');
 
 (async () => {
   const username = process.argv[2] || 'admin';

@@ -175,7 +175,22 @@ function listSessions(userId) {
 
 function createSession(ownerId, opts) {
   const set = userSessions.get(ownerId) || new Set();
-  if (set.size >= MAX_SESSIONS_PER_USER) throw new Error(`max ${MAX_SESSIONS_PER_USER} sessions`);
+  if (set.size >= MAX_SESSIONS_PER_USER) {
+    // Evict the oldest idle session instead of refusing forever: a user with many
+    // closed tabs would otherwise never be able to open a new terminal again.
+    const idle = [...set]
+      .map(id => sessions.get(id))
+      .filter(s => s && s.clients.size === 0)
+      .sort((a, b) => a.lastActivity - b.lastActivity);
+    if (idle.length > 0) {
+      const victim = idle[0];
+      warn(`session cap (${MAX_SESSIONS_PER_USER}) reached - evicting idle session ${victim.id.slice(0, 8)}`);
+      victim.dispose();
+      cleanupSession(victim.id);
+    } else {
+      throw new Error(`max ${MAX_SESSIONS_PER_USER} sessions`);
+    }
+  }
   const s = new TerminalSession(ownerId, opts);
   sessions.set(s.id, s);
   set.add(s.id);

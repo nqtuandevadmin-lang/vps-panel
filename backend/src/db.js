@@ -34,8 +34,14 @@ function load() {
       2: (d) => { d.apiKeys = d.apiKeys || []; d.notifications = d.notifications || []; },
       3: (d) => { d.terminals = d.terminals || []; d.settings = Array.isArray(d.settings) ? d.settings : []; },
     };
-    let v = d.version || 1;
-    while (v < SCHEMA_VERSION) { const fn = migrations[v]; if (fn) fn(db); v++; }
+    // Run every migration at or above the stored version. Each one is idempotent,
+// so this is safe to run on a fresh file, a legacy file or an up-to-date file.
+// (A `while (v < SCHEMA_VERSION)` loop would silently skip the last migration.)
+const migrationSteps = Object.keys(migrations).map(Number).sort((a, b) => a - b);
+    const fromVersion = db.version || 1;
+    for (const step of migrationSteps) {
+      if (step >= fromVersion) migrations[step](db);
+    }
     db.version = SCHEMA_VERSION;
   } catch {
     db = empty();

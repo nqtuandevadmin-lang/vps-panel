@@ -221,15 +221,21 @@ async function systemRoutes(app, opts) {
     const cmd = String(command || '').replace(/[\n\r]/g, ' ').slice(0, 500);
     if (!cmd) return reply.code(400).send({ error: 'empty command' });
     const cur = await system.run('crontab', ['-l']);
+    if (!cur.ok && /not found/i.test(cur.stderr || '')) {
+      return reply.code(400).send({ error: 'crontab is not installed (apt-get install cron)' });
+    }
     const base = cur.ok ? cur.stdout : '';
     const line = `${schedule.trim()} ${cmd}\n`;
-    const r = await system.run('crontab', ['-'], {}, undefined);
-    // write via stdin
+    // write via stdin and check the exit code - never report success on failure
     const { execFile } = require('child_process');
-    await new Promise((resolve) => {
-      const p = execFile('crontab', ['-'], (err) => resolve(!err));
-      p.stdin.end(base + line);
+    const written = await new Promise((resolve) => {
+      const cp = execFile('crontab', ['-'], (err, so, se) => resolve({ ok: !err, err: se || '' }));
+      cp.stdin.end(base + line);
     });
+    if (!written.ok) {
+      db.audit(req.user.id, 'cron.add', cmd, 'fail', {}, clientIp(req.raw || req));
+      return reply.code(400).send({ error: `could not write crontab: ${written.err.trim() || 'unknown error'}` });
+    }
     db.audit(req.user.id, 'cron.add', cmd, 'ok');
     return { ok: true, line };
   });
@@ -242,10 +248,11 @@ async function systemRoutes(app, opts) {
     if (!Number.isInteger(idx) || idx < 0 || idx >= lines.length) return reply.code(400).send({ error: 'invalid job id' });
     const removed = lines.splice(idx, 1)[0];
     const { execFile } = require('child_process');
-    await new Promise((resolve) => {
-      const p = execFile('crontab', ['-'], (err) => resolve(!err));
-      p.stdin.end(lines.join('\n') + '\n');
+    const written = await new Promise((resolve) => {
+      const cp = execFile('crontab', ['-'], (err, so, se) => resolve({ ok: !err, err: se || '' }));
+      cp.stdin.end(lines.join('\n') + '\n');
     });
+    if (!written.ok) return reply.code(400).send({ error: `could not write crontab: ${written.err.trim()}` });
     db.audit(req.user.id, 'cron.remove', removed, 'ok');
     return { ok: true };
   });
