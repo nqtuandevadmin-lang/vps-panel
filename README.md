@@ -8,7 +8,7 @@ Web-based VPS control panel with a real terminal, file manager, process & servic
 ## Quick install (one command)
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/vps-panel/panel/main/install.sh)
+bash <(curl -sSL https://raw.githubusercontent.com/nqtuandevadmin-lang/vps-panel/main/install.sh)
 ```
 
 Options:

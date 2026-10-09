@@ -18,7 +18,7 @@
 set -Eeuo pipefail
 
 # ---------------- config ----------------
-PANEL_REPO="${PANEL_REPO:-tuancutephomaiquedethuong-code/vps-panel}"
+PANEL_REPO="${PANEL_REPO:-nqtuandevadmin-lang/vps-panel}"
 PANEL_VERSION="v1.0.0"           # release tag used for the verified tarball asset
 PANEL_BRANCH="main"              # fallback branch if the release asset is missing
 ASSET_NAME="vps-panel-${PANEL_VERSION}.tar.gz"
@@ -26,6 +26,10 @@ ASSET_NAME="vps-panel-${PANEL_VERSION}.tar.gz"
 # SHA256SUMS from ANY HTTP location (GitLab, Codeberg, your own VPS, S3, ...).
 # Example: PANEL_BASE_URL=https://gitlab.com/you/vps-panel/-/raw/v1.0.0
 PANEL_BASE_URL="${PANEL_BASE_URL:-}"
+# CDN mirror: jsDelivr serves the repo tarball + SHA256SUMS with no stale-cache
+# problems (GitHub raw can lag minutes behind after a push). Overridable, and
+# resolved from PANEL_REPO at run time so --repo/PANEL_REPO always wins.
+PANEL_CDN_URL="${PANEL_CDN_URL:-}"
 LOCAL_DIR=""                 # --local <dir>: install from a local copy, no download
 INSTALL_DIR="/opt/vps-panel"
 DATA_DIR="$INSTALL_DIR/data"
@@ -318,6 +322,9 @@ install_node() {
 # ---------------- download & verify source ----------------
 download_source() {
   local tmp="/tmp/vps-panel-src.tar.gz"
+  # resolve the CDN mirror lazily so PANEL_REPO set at run time is honoured
+  [ -z "$PANEL_CDN_URL" ] && [ -z "$PANEL_BASE_URL" ] && \
+    PANEL_CDN_URL="https://cdn.jsdelivr.net/gh/${PANEL_REPO}@${PANEL_BRANCH}"
 
   # ---- local mode: copy from a directory that already contains the project ----
   if [ -n "$LOCAL_DIR" ]; then
@@ -343,6 +350,11 @@ download_source() {
     sums_url="${PANEL_BASE_URL%/}/SHA256SUMS"
     branch_url="$release_url"
     raw_base="$release_url"
+  elif [ -n "$PANEL_CDN_URL" ]; then
+    raw_base="$PANEL_CDN_URL"
+    release_url="https://github.com/$PANEL_REPO/releases/download/$PANEL_VERSION/$ASSET_NAME"
+    branch_url="https://github.com/$PANEL_REPO/archive/refs/heads/$PANEL_BRANCH.tar.gz"
+    sums_url="${PANEL_CDN_URL}/SHA256SUMS"
   else
     raw_base="https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH"
     release_url="https://github.com/$PANEL_REPO/releases/download/$PANEL_VERSION/$ASSET_NAME"
@@ -350,12 +362,15 @@ download_source() {
     sums_url="${raw_base}/SHA256SUMS"
   fi
   rm -f "$tmp"
-  start_spinner "downloading verified release asset..."
-  # Order: 1) tarball committed in the repo (raw, always reliable)
-  #        2) release asset (may be unavailable on some GitHub states)
-  #        3) branch tarball (last resort)
+  start_spinner "downloading verified asset..."
+  # Order: 1) CDN mirror (jsDelivr - consistent with SHA256SUMS, no stale cache)
+  #        2) repo tarball on raw (same commit, may lag briefly)
+  #        3) GitHub release asset
+  #        4) branch tarball (last resort)
   if curl -fL --retry 2 -o "$tmp" "$raw_base/$ASSET_NAME"; then
-    SOURCE_KIND="repo tarball ($ASSET_NAME)"
+    SOURCE_KIND="verified asset ($ASSET_NAME)"
+  elif curl -fL --retry 2 -o "$tmp" "https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/$ASSET_NAME"; then
+    SOURCE_KIND="repo asset ($ASSET_NAME)"
   elif curl -fL --retry 2 -o "$tmp" "$release_url"; then
     SOURCE_KIND="release asset ($ASSET_NAME)"
   else
