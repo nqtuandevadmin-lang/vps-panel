@@ -36,11 +36,18 @@ function gcTokens() {
 }
 
 // ---------- curl command for a node ----------
+// Build the panel base URL from the request, never from a broken config value.
+function requestBase(req) {
+  if (typeof cfg.url === 'string' && /^https?:\/\//.test(cfg.url)) return cfg.url.replace(/\/$/, '');
+  const headers = (req && req.headers) || {};
+  const host = String(headers['x-forwarded-host'] || headers.host || `127.0.0.1:${cfg.port}`).split(',')[0].trim();
+  const proto = String(headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+  return `${proto}://${host}`;
+}
+
 function curlCommand(rec, baseUrl) {
-  const base = (baseUrl || cfg.url || '').replace(/\/$/, '');
-  const endpoint = base
-    ? `${base}/connect.sh`
-    : 'http://127.0.0.1:8080/connect.sh';
+  const base = String(baseUrl || '').replace(/\/$/, '');
+  const endpoint = /^https?:\/\//.test(base) ? `${base}/connect.sh` : `http://127.0.0.1:${cfg.port}/connect.sh`;
   return `curl -fsSL "${endpoint}?t=${rec.token}" | sudo bash`;
 }
 
@@ -55,7 +62,7 @@ async function nodeRoutes(app, opts) {
     return {
       ok: true, state,
       panel: { name: cfg.name || 'VPS Panel', version: '1.1.0' },
-      agentDownloadUrl: `${req.protocol}://${req.host}/agent.js`,
+      agentDownloadUrl: `${requestBase(req)}/agent.js`,
       expiresInSec: Math.max(0, Math.floor((rec.expiresAt - Date.now()) / 1000)),
       note: rec.note,
     };
@@ -66,7 +73,7 @@ async function nodeRoutes(app, opts) {
     const { note } = req.body || {};
     const rec = newConnectToken({ note });
     db.audit(req.user.id, 'node.connect-link', rec.token.slice(0, 8), 'ok', { note: rec.note });
-    const base = (cfg.url || `${req.protocol}://${req.host}`);
+    const base = requestBase(req);
     return {
       ok: true,
       token: rec.token,
@@ -78,7 +85,7 @@ async function nodeRoutes(app, opts) {
   });
 
   app.get('/nodes/connect-links', { preHandler: [opts.authMw, requireRole('admin')] }, async (req) => {
-    const base = (cfg.url || '');
+    const base = requestBase(req);
     return {
       ok: true,
       links: db.coll('connectTokens')
@@ -241,4 +248,4 @@ function relayTerminal(node, ws, sid) {
   ws.on('close', cleanup);
 }
 
-module.exports = { nodeRoutes, attachAgentWs, nodes, proxy, relayTerminal, newConnectToken, tokenState, CONNECT_TOKEN_TTL_MS, curlCommand, gcTokens };
+module.exports = { nodeRoutes, attachAgentWs, nodes, proxy, relayTerminal, newConnectToken, tokenState, CONNECT_TOKEN_TTL_MS, curlCommand, requestBase, gcTokens };
