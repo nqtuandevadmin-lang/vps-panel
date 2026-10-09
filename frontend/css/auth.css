@@ -202,9 +202,22 @@
   .auth-bg .orb, .grid-lines { animation: none !important; }
 }
 /* ---------- login is a full page, never shown next to the dashboard ---------- */
+/* These two rules are mutually exclusive, so exactly one screen can ever show.
+   They are scoped to .auth-screen / .app-shell only - a JS error can no longer
+   leave the user staring at an empty or black page. */
 .auth-screen[hidden] { display: none !important; }
 body:not(.app-active) .app-shell { display: none !important; }
 body.app-active .auth-screen { display: none !important; }
+body.app-active .app-shell { display: flex !important; }
+
+/* safety: the splash always fades away, even if JS dies right after it renders */
+.splash { pointer-events: none; }
+.splash.done { opacity: 0; visibility: hidden; }
+/* if the splash is somehow still in the DOM, never let it hide the app */
+body.app-active .splash { display: none !important; }
+
+/* never render an empty shell */
+.app-shell:empty { display: none !important; }
 .app-shell { animation: shellIn .45s var(--ease) both; }
 @keyframes shellIn { from { opacity: 0; transform: scale(.995); } }
 body:not(.app-active) { overflow: hidden; }

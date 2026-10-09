@@ -252,16 +252,56 @@ function renderView(view) {
 window.addEventListener('hashchange', () => { const v = location.hash.replace('#/', '') || 'dashboard'; renderView(v); });
 
 /* ---------- Login / logout ---------- */
+/* ---------- screen switching (login page vs app) ---------- */
+function showAuth() {
+  const auth = $('#login-screen');
+  const shell = $('#app-shell');
+  if (shell) shell.hidden = true;          // hidden only - the DOM stays intact
+  if (auth) auth.hidden = false;
+  document.body.classList.remove('app-active');
+  if (typeof initAuthScreen === 'function') initAuthScreen();
+}
+
+function showApp() {
+  const auth = $('#login-screen');
+  const shell = $('#app-shell');
+  if (auth) auth.hidden = true;
+  if (shell) shell.hidden = false;
+  document.body.classList.add('app-active');
+}
+
 function logout() {
   store.token = ''; store.refresh = ''; store.user = ''; store.csrf = '';
-  // hard reset: the app shell is fully torn down so nothing shows behind the login page
-  $('#app-shell').hidden = true;
-  $('#app-shell').innerHTML = '';
+  try { sessionStorage.clear(); } catch { /* ignore */ }
   location.hash = '';
   history.replaceState(null, '', '/');
-  $('#login-screen').hidden = false;
-  document.body.classList.remove('app-active');
-  initAuthScreen();
+  showAuth();
+}
+
+/* admin-only nav entries; a non-admin must never reach an admin view */
+function applyRoleVisibility() {
+  const isAdmin = (store.user && store.user.role) === 'admin';
+  $$('.admin-only').forEach(el => { el.hidden = !isAdmin; });
+  if (!isAdmin) {
+    const v = location.hash.replace('#/', '');
+    if (['invites', 'audit', 'settings', 'users', 'firewall', 'sysusers', 'nginx', 'ssl'].includes(v)) {
+      location.hash = '/terminal';
+    }
+  }
+}
+
+function enterApp() {
+  showApp();
+  try { applyRoleVisibility(); } catch (e) { console.error(e); }
+  const v = location.hash.replace('#/', '') || 'dashboard';
+  try {
+    renderView(VIEWS[v] ? v : 'dashboard');
+  } catch (e) {
+    // the shell is already visible; a broken view must not blank the screen
+    console.error('view failed:', e);
+    const root = $('#view-root');
+    if (root) root.innerHTML = `<div class="empty-state"><div><strong>Không tải được màn hình này</strong><div>${String(e && e.message || e)}</div></div></div>`;
+  }
 }
 
 /* ================= AUTH SCREEN ================= */
@@ -1499,38 +1539,69 @@ function toggleSidebar() {
 
 /* ---------- Boot ---------- */
 async function boot() {
-  initTheme();
-  $('#theme-toggle').onclick = cycleTheme;
-  $('#menu-toggle').onclick = toggleSidebar;
-  $('#sidebar-collapse').onclick = toggleSidebar;
-  $('#drawer-backdrop').onclick = toggleSidebar;
-  initUserMenu();
-  await initAuth();
+  // The splash must disappear no matter what fails below, otherwise the user
+  // stares at a black screen. Fail-safe first, then real work.
+  const killSplash = () => {
+    const sp = $('#splash');
+    if (sp) { sp.classList.add('done'); setTimeout(() => sp.remove(), 600); }
+  };
+  const splashGuard = setTimeout(killSplash, 2500);
 
-  if (store.token && store.user) {
-    // validate token
-    try {
-      await api('GET', '/api/v1/system/overview');
+  try {
+    initTheme();
+    $('#theme-toggle').onclick = cycleTheme;
+    $('#menu-toggle').onclick = toggleSidebar;
+    $('#sidebar-collapse').onclick = toggleSidebar;
+    $('#drawer-backdrop').onclick = toggleSidebar;
+    initUserMenu();
+
+    // decide up front: app shell if we have a session, otherwise the login page
+    showAuth();
+
+    let signedIn = false;
+    if (store.token && store.user) {
+      try {
+        await api('GET', '/api/v1/settings');   // cheap, needs auth
+        signedIn = true;
+      } catch (e) {
+        if (e.status === 401) {
+          // session expired: try the refresh token once before giving up
+          try {
+            const r = await fetch('/api/v1/auth/refresh', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ refresh: store.refresh }),
+            });
+            if (r.ok) {
+              const j = await r.json();
+              store.token = j.tokens.access; store.csrf = j.csrf || store.csrf;
+              signedIn = true;
+            } else {
+              store.token = ''; store.user = ''; store.csrf = ''; store.refresh = '';
+            }
+          } catch { store.token = ''; store.user = ''; store.csrf = ''; store.refresh = ''; }
+        } else {
+          signedIn = true; // network hiccup: keep the session and let the app retry
+        }
+      }
+    }
+    if (signedIn) {
+      await initAuth();      // fill signup rules / invite banner behind the app
       enterApp();
-    } catch {
-      logout();
+    } else {
+      await initAuth();      // login + signup screen
+      showAuth();
+      setTimeout(() => { const f = $('#login-user'); if (f) f.focus(); }, 300);
     }
-  }
 
-  setTimeout(() => $('#splash').classList.add('done'), 900);
-  setInterval(refreshNotifications, 60000);
-}
-
-// admin-only nav entries
-function applyRoleVisibility() {
-  const isAdmin = (store.user && store.user.role) === 'admin';
-  $$('.admin-only').forEach(el => { el.hidden = !isAdmin; });
-  if (!isAdmin) {
-    // a non-admin must never land on an admin view
-    const v = location.hash.replace('#/', '');
-    if (['invites', 'audit', 'settings', 'users', 'firewall', 'sysusers', 'nginx', 'ssl'].includes(v)) {
-      location.hash = '/terminal';
-    }
+    setInterval(refreshNotifications, 60000);
+  } catch (err) {
+    // Never leave the user on a blank screen: show the login page and report.
+    console.error('boot failed:', err);
+    showAuth();
+    toast('Startup problem', String(err && err.message || err), 'err', 8000);
+  } finally {
+    clearTimeout(splashGuard);
+    killSplash();
   }
 }
 

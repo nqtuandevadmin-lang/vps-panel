@@ -162,11 +162,7 @@ a:hover { text-decoration: underline; }
 @keyframes splashLoad { to { width: 100%; } }
 
 /* ---------- Login ---------- */
-.login-screen {
-  min-height: 100vh; display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(1200px 600px at 70% -10%, color-mix(in srgb, var(--brand) 12%, transparent), transparent), var(--bg);
-  padding: 20px;
-}
+/* the auth screen is styled in auth.css */
 .login-card {
   width: min(380px, 100%); background: var(--bg-elev); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 32px; box-shadow: var(--shadow-lg);
@@ -223,7 +219,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--brand); width:
 .nav-item .icon { fill: none; stroke: currentColor; }
 
 /* ---------- App shell ---------- */
-.app-shell { display: flex; height: 100vh; overflow: hidden; }
+/* visibility is controlled by auth.css (body.app-active) - never force display here */
+.app-shell { height: 100vh; overflow: hidden; }
 .sidebar {
   width: var(--sidebar-w); background: var(--bg-soft); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; flex: none; transition: width var(--t-normal) var(--ease);
