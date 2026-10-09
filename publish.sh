@@ -92,15 +92,19 @@ fi
 
 # The release holds exactly one asset (the verified tarball). Remove whatever is
 # there before uploading, otherwise GitHub rejects the upload with already_exists.
-api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" 2>/dev/null \
-  | tr ',' '\n' | grep -o '"id":[0-9][0-9]*' | cut -d: -f2 | sort -u > "$TMPIDS" || true
+# Parsed with node so the ids are exact (grep/tr parsing of minified JSON is fragile).
+node -e '
+  let d = "";
+  process.stdin.on("data", c => d += c).on("end", () => {
+    try { (JSON.parse(d) || []).forEach(a => console.log(a.id)); } catch { }
+  });
+' < <(api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" 2>/dev/null || echo "[]") > "$TMPIDS"
 while read -r aid; do
   [ -n "$aid" ] || continue
   echo "    removing existing asset id $aid"
   curl -fsSL -X DELETE -H "Authorization: token $TOKEN" \
     "https://api.github.com/repos/$REPO_SLUG/releases/assets/$aid" >/dev/null 2>&1 || true
 done < "$TMPIDS"
-rm -f "$TMPIDS"
 
 # upload (the installer fetches the asset through the API, so the id may change)
 if curl -fsSL -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/octet-stream" \
