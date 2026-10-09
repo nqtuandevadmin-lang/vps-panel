@@ -158,6 +158,56 @@ function randomPassword(len = 18) {
   return chars.join('');
 }
 
+// ---------- platform identity (multi-tenant) ----------
+// Every panel account can be mapped to a real Linux account. The terminal then
+// runs as THAT user (no root), and the file manager is jailed to their home.
+// uid/gid of 0 means "root shell" and is only given to admins when
+// cfg.adminGetsRootShell is true.
+async function assignPlatformIdentity(user) {
+  const { execFile } = require('child_process');
+  const home = `/home/${user.username}`;
+  const idOut = await new Promise((resolve) => {
+    execFile('id', ['-u', user.username], (err, so) => resolve(err ? null : parseInt(so.trim(), 10)));
+  });
+  if (idOut === null || Number.isNaN(idOut)) {
+    const created = await new Promise((resolve) => {
+      execFile('useradd', ['-m', '-s', '/bin/bash', user.username], (err, so, se) => {
+        if (!err) return resolve(true);
+        if (/already exists/i.test(se || '')) return resolve(true);
+        resolve(false);
+      });
+    });
+    if (!created) return null;
+  }
+  const ids = await new Promise((resolve) => {
+    execFile('id', ['-u', user.username], (e1, uidOut) => {
+      execFile('id', ['-g', user.username], (e2, gidOut) => {
+        if (e1 || e2) return resolve(null);
+        resolve({ uid: parseInt(uidOut.trim(), 10), gid: parseInt(gidOut.trim(), 10) });
+      });
+    });
+  });
+  if (!ids) return null;
+  const isRoot = ids.uid === 0;
+  user.uid = ids.uid;
+  user.gid = ids.gid;
+  user.home = home;
+  user.platformUser = user.username;
+  // role-appropriate shell
+  user.shellAccess = isRoot ? 'root' : 'user';
+  db.save();
+  return user;
+}
+
+// passwordless sudo for a tiny, explicit set of read-only commands (optional)
+async function grantReadOnlySudo(username) {
+  const { execFile } = require('child_process');
+  const line = `${username} ALL=(root) NOPASSWD: /usr/bin/systemctl status *, /usr/bin/cat /proc/*, /usr/bin/df, /usr/bin/free, /usr/bin/uptime, /usr/bin/id\n`;
+  return new Promise((resolve) => {
+    execFile('sh', ['-c', `echo ${JSON.stringify(line)} >> /etc/sudoers.d/panel-readonly`], (err) => resolve(!err));
+  });
+}
+
 module.exports = {
   hashPassword, verifyPassword, passwordPolicy, passwordScore,
   signAccess, signRefresh, verifyAccess, verifyRefresh,
@@ -166,4 +216,5 @@ module.exports = {
   generateTotpSecret, totpUri, verifyTotp, generateBackupCodes,
   checkBruteForce, recordFailedLogin, recordSuccessLogin,
   csrfToken, verifyCsrf, randomPassword,
+  assignPlatformIdentity, grantReadOnlySudo,
 };

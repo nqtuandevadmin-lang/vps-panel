@@ -40,30 +40,64 @@ async function authRoutes(app, opts) {
     return { ok: true, enabled: !!user.totpEnabled };
   });
 
-  // ---- register (first user becomes admin; afterwards only admin can create users) ----
+  // ---- public registration (multi-tenant) ----
   app.post('/auth/register', async (req, reply) => {
-    const { username, email, password } = req.body || {};
+    const { username, email, password, invite } = req.body || {};
     const ip = clientIp(req);
     if (!ipAllowed(ip)) return reply.code(403).send({ error: 'IP not allowed' });
     if (!username || !/^[a-z0-9._-]{3,32}$/i.test(username)) return reply.code(400).send({ error: 'invalid username (3-32 chars, a-z 0-9 . _ -)' });
+    if (!/^[a-z][a-z0-9_-]{2,31}$/.test(username)) return reply.code(400).send({ error: 'username must start with a letter and can only contain a-z, 0-9, _ and - (it is also your Linux account)' });
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reply.code(400).send({ error: 'invalid email' });
     const errs = auth.passwordPolicy(password || '');
     if (errs.length) return reply.code(400).send({ error: 'weak password', details: errs });
 
+    const isFirst = db.coll('users').length === 0;
+    if (!isFirst) {
+      if (cfg.invitesOnly) {
+        const { consumeInvite } = require('../ops-invites');
+        const chk = consumeInvite(invite, username);
+        if (!chk.ok) return reply.code(403).send({ error: chk.error });
+      } else if (!cfg.allowPublicSignup) {
+        return reply.code(403).send({ error: 'registration is disabled on this panel' });
+      }
+    }
+
     const existing = db.findBy('users', 'username', username.toLowerCase()) || db.findBy('users', 'email', email.toLowerCase());
     if (existing) return reply.code(409).send({ error: 'user already exists' });
+    const dupeSystem = await new Promise((resolve) => {
+      require('child_process').execFile('id', ['-u', username.toLowerCase()], (err) => resolve(!!err));
+    });
+    if (!dupeSystem) return reply.code(409).send({ error: 'that system username is already taken' });
 
-    const isFirst = db.coll('users').length === 0;
     const user = db.insert('users', {
       username: username.toLowerCase(),
       email: email.toLowerCase(),
       passwordHash: await auth.hashPassword(password),
-      role: isFirst ? 'admin' : 'user',
+      role: isFirst ? 'admin' : cfg.defaultRole,
       totpSecret: '', totpEnabled: false, backupCodes: [],
       createdAt: Date.now(), lastLogin: null, failedAttempts: 0, lockedUntil: 0,
+      invitedByInvite: invite || null,
     });
-    db.audit(user.id, 'user.register', user.id, 'ok', {}, ip);
-    return { ok: true, user: publicUser(user), role: user.role };
+
+    // give them their own Linux identity so the terminal is never a root shell
+    let platform = { ok: false };
+    if (cfg.autoCreateLinuxUser) {
+      const assigned = await auth.assignPlatformIdentity(user);
+      platform = assigned ? { ok: true, uid: user.uid, home: user.home } : { ok: false, error: 'could not create the system account' };
+      if (platform.ok) await auth.grantReadOnlySudo(user.username).catch(() => {});
+    }
+
+    db.audit(user.id, 'user.register', user.id, 'ok', { invited: !!invite, platform }, ip);
+    db.notify('user', 'New account', `${user.username} registered${invite ? ' via invite link' : ''}`);
+    return {
+      ok: true,
+      user: publicUser(user),
+      role: user.role,
+      platform,
+      message: platform.ok
+        ? `Account created. Your shell runs as the system user "${user.username}" (home ${user.home}).`
+        : 'Account created. Terminal runs with the panel identity.',
+    };
   });
 
   // ---- login (step 1: password, step 2: 2FA if enabled) ----

@@ -1,0 +1,203 @@
+/* ==========================================================================
+   VPS Panel - Auth screen + shared animation system
+   ========================================================================== */
+
+/* ---------- animated background ---------- */
+.auth-screen {
+  position: relative; min-height: 100vh; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; isolation: isolate;
+}
+.auth-bg { position: absolute; inset: 0; z-index: -1; overflow: hidden;
+  background: radial-gradient(1200px 800px at 15% -10%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 60%),
+              radial-gradient(900px 700px at 95% 110%, color-mix(in srgb, var(--brand-2) 14%, transparent), transparent 60%),
+              var(--bg);
+}
+.orb { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .40; will-change: transform; }
+.orb-1 { width: 420px; height: 420px; background: var(--brand); top: -8%; left: 6%;
+  animation: float1 18s var(--ease) infinite; }
+.orb-2 { width: 340px; height: 340px; background: var(--brand-2); bottom: -6%; right: 8%;
+  animation: float2 22s var(--ease) infinite; }
+.orb-3 { width: 240px; height: 240px; background: var(--chart-3); top: 45%; left: 55%;
+  opacity: .22; animation: float3 26s var(--ease) infinite; }
+@keyframes float1 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(70px,50px) scale(1.14)} 66%{transform:translate(-40px,90px) scale(.94)} }
+@keyframes float2 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(-80px,-60px) scale(1.18)} }
+@keyframes float3 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-110px,70px)} }
+.grid-lines {
+  position: absolute; inset: 0; opacity: .30;
+  background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 75%);
+  animation: gridDrift 40s linear infinite;
+}
+@keyframes gridDrift { to { background-position: 56px 56px, 56px 56px; } }
+
+/* ---------- layout ---------- */
+.auth-wrap {
+  width: min(1080px, 100%); display: grid; gap: 28px;
+  grid-template-columns: 1.05fr .95fr; align-items: center;
+}
+.auth-hero { animation: heroIn .7s var(--ease) both; }
+@keyframes heroIn { from { opacity: 0; transform: translateX(-28px); } }
+.hero-logo { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 17px; margin-bottom: 26px; }
+.hero-logo svg { animation: logoPulse 3.4s var(--ease) infinite; }
+@keyframes logoPulse { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-4px) scale(1.05)} }
+.hero-title { margin: 0 0 14px; font-size: clamp(30px, 4.6vw, 46px); line-height: 1.08; font-weight: 800; letter-spacing: -.025em;
+  background: linear-gradient(120deg, var(--text) 25%, var(--brand) 95%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.hero-sub { color: var(--text-dim); font-size: 15px; max-width: 46ch; margin: 0 0 24px; }
+.hero-list { list-style: none; padding: 0; margin: 0 0 26px; display: grid; gap: 11px; }
+.hero-item { display: flex; align-items: center; gap: 11px; color: var(--text-dim); font-size: 14px;
+  animation: itemIn .6s var(--ease) both; }
+.hero-item:nth-child(1){animation-delay:.12s} .hero-item:nth-child(2){animation-delay:.22s} .hero-item:nth-child(3){animation-delay:.32s}
+.hero-item .ic { width: 19px; height: 19px; flex: none; color: var(--brand); stroke: currentColor; fill: none; }
+@keyframes itemIn { from { opacity: 0; transform: translateX(-14px); } }
+.hero-stats { display: flex; gap: 10px; flex-wrap: wrap; }
+.stat-chip { display: flex; flex-direction: column; padding: 10px 16px; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: color-mix(in srgb, var(--bg-elev) 75%, transparent);
+  backdrop-filter: blur(8px); animation: chipIn .5s var(--ease) both; }
+.stat-chip:nth-child(1){animation-delay:.4s} .stat-chip:nth-child(2){animation-delay:.5s} .stat-chip:nth-child(3){animation-delay:.6s}
+.stat-chip b { font-size: 19px; font-variant-numeric: tabular-nums; }
+.stat-chip span { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .07em; }
+@keyframes chipIn { from { opacity: 0; transform: translateY(14px) scale(.94); } }
+
+/* ---------- card ---------- */
+.auth-card {
+  position: relative; background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
+  backdrop-filter: blur(18px) saturate(1.3); border: 1px solid var(--border);
+  border-radius: 22px; padding: 8px 28px 28px; box-shadow: var(--shadow-lg);
+  animation: cardIn .7s .08s var(--ease) both; overflow: hidden;
+}
+.auth-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--brand), var(--brand-2), transparent);
+  animation: sweep 3.6s var(--ease) infinite; }
+@keyframes sweep { 0%{transform:translateX(-100%)} 60%,100%{transform:translateX(100%)} }
+@keyframes cardIn { from { opacity: 0; transform: translateY(26px) scale(.97); } }
+
+/* ---------- tabs ---------- */
+.auth-tabs { position: relative; display: flex; gap: 4px; padding: 8px 0 0; margin-bottom: 20px;
+  border-bottom: 1px solid var(--border); }
+.auth-tab { position: relative; z-index: 1; flex: 1; padding: 12px 10px; border: none; background: none;
+  color: var(--text-dim); font-weight: 600; font-size: 14px; cursor: pointer; border-radius: 8px 8px 0 0;
+  transition: color var(--t-fast) var(--ease); }
+.auth-tab:hover { color: var(--text); background: color-mix(in srgb, var(--text) 5%, transparent); }
+.auth-tab.is-active { color: var(--brand); }
+.auth-tab-ink { position: absolute; bottom: -1px; height: 2px; background: var(--brand); border-radius: 2px;
+  transition: transform var(--t-normal) var(--ease), width var(--t-normal) var(--ease); z-index: 0; }
+
+/* ---------- panes ---------- */
+.auth-pane { display: none; }
+.auth-pane.is-active { display: block; }
+.pane-anim { animation: paneIn .42s var(--ease) both; }
+@keyframes paneIn { from { opacity: 0; transform: translateY(12px); } }
+
+/* ---------- fields ---------- */
+.field { position: relative; margin-bottom: 15px; }
+.field input, .field select { transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
+.field input:focus { transform: translateY(-1px); }
+.field-label { display: block; font-size: 12px; font-weight: 700; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 7px; }
+.field-hint { display: block; font-size: 11.5px; color: var(--text-faint); margin-top: 6px; }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 44px; }
+.pw-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border: none; background: none; color: var(--text-faint);
+  cursor: pointer; border-radius: 6px; transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
+.pw-toggle:hover { color: var(--brand); background: var(--bg-soft); }
+.pw-toggle .ic { width: 18px; height: 18px; }
+
+.btn-lg { padding: 12px 20px; font-size: 14.5px; border-radius: 12px; position: relative; overflow: hidden; }
+.btn-lg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.28), transparent 70%);
+  transform: translateX(-120%); transition: transform .6s var(--ease); }
+.btn-lg:hover::after { transform: translateX(120%); }
+
+.auth-swap { margin: 16px 0 0; text-align: center; font-size: 13px; color: var(--text-dim); }
+.link-btn { border: none; background: none; color: var(--brand); font-weight: 600; cursor: pointer;
+  padding: 2px 4px; border-radius: 5px; transition: background var(--t-fast) var(--ease); }
+.link-btn:hover { background: color-mix(in srgb, var(--brand) 12%, transparent); }
+
+/* strength meter */
+.strength-meter { display: flex; gap: 5px; margin-top: 9px; }
+.strength-meter .bar { flex: 1; height: 4px; border-radius: 99px; background: var(--border);
+  transition: background var(--t-normal) var(--ease), transform var(--t-normal) var(--ease); }
+.strength-meter .bar.on-1 { background: var(--err); transform: scaleY(1.6); }
+.strength-meter .bar.on-2 { background: var(--warn); transform: scaleY(1.6); }
+.strength-meter .bar.on-3 { background: var(--warn); transform: scaleY(1.6); }
+.strength-meter .bar.on-4, .strength-meter .bar.on-5 { background: var(--ok); transform: scaleY(1.6); }
+
+/* invite banner */
+.invite-banner { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 18px;
+  border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent); animation: itemIn .5s var(--ease) both; }
+.invite-banner .ic { width: 22px; height: 22px; color: var(--ok); flex: none; stroke: currentColor; fill: none; }
+.invite-banner div { display: flex; flex-direction: column; }
+.invite-banner strong { font-size: 13.5px; }
+.invite-banner span { font-size: 12px; color: var(--text-dim); }
+
+/* errors + shake */
+.form-error { margin-bottom: 14px; }
+.shake { animation: shake .42s var(--ease); }
+@keyframes shake { 10%,90%{transform:translateX(-2px)} 20%,80%{transform:translateX(4px)} 30%,50%,70%{transform:translateX(-7px)} 40%,60%{transform:translateX(7px)} }
+
+/* button busy state */
+.btn.busy { pointer-events: none; position: relative; color: transparent; }
+.btn.busy::before { content: ''; position: absolute; width: 17px; height: 17px; border: 2.4px solid var(--bg);
+  border-top-color: transparent; border-radius: 50%; animation: spin .65s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* success flash on the card */
+.auth-card.done { animation: doneFlash .8s var(--ease); }
+@keyframes doneFlash {
+  0% { box-shadow: var(--shadow-lg), 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
+  60% { box-shadow: var(--shadow-lg), 0 0 0 14px transparent; }
+  100% { box-shadow: var(--shadow-lg), 0 0 0 0 transparent; }
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 900px) {
+  .auth-wrap { grid-template-columns: 1fr; max-width: 460px; }
+  .auth-hero { text-align: center; }
+  .hero-logo, .hero-list { justify-content: center; }
+  .hero-sub { margin-inline: auto; }
+  .hero-stats { justify-content: center; }
+}
+@media (max-width: 520px) {
+  .auth-screen { padding: 14px; }
+  .auth-card { padding: 6px 18px 22px; border-radius: 18px; }
+  .hero-title { font-size: 27px; }
+  .hero-list, .hero-stats { display: none; }
+}
+
+/* ---------- shared page/view animations (used by the app shell too) ---------- */
+.view-root > * { animation: viewItem .45s var(--ease) both; }
+.view-root > *:nth-child(1) { animation-delay: .02s; }
+.view-root > *:nth-child(2) { animation-delay: .07s; }
+.view-root > *:nth-child(3) { animation-delay: .12s; }
+.view-root > *:nth-child(4) { animation-delay: .17s; }
+.view-root > *:nth-child(5) { animation-delay: .22s; }
+@keyframes viewItem { from { opacity: 0; transform: translateY(14px); } }
+
+.card { transition: transform var(--t-normal) var(--ease), box-shadow var(--t-normal) var(--ease), border-color var(--t-normal) var(--ease); }
+.card:hover { border-color: var(--border-strong); }
+.stat:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+
+.nav-item { position: relative; overflow: hidden; }
+.nav-item::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--brand); transform: translateY(-100%); transition: transform var(--t-normal) var(--ease); }
+.nav-item.active::before { transform: translateY(0); }
+.nav-item .icon { transition: transform var(--t-normal) var(--ease); }
+.nav-item:hover .icon { transform: scale(1.14) rotate(-4deg); }
+
+.row-hover { transition: background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
+.row-hover:hover { transform: translateX(2px); }
+
+/* number/percentage tick animation for stats */
+.stat .stat-value { transition: color var(--t-normal) var(--ease); }
+.stat.flash .stat-value { animation: tick .5s var(--ease); }
+@keyframes tick { 0%{transform:scale(1)} 40%{transform:scale(1.09); color:var(--brand)} 100%{transform:scale(1)} }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .auth-bg .orb, .grid-lines { animation: none !important; }
+}

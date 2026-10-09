@@ -8,9 +8,11 @@ const util = require('util');
 const execFileP = util.promisify(execFile);
 const crypto = require('crypto');
 
-// File manager root jail. Default: the invoking user's home (/home/<user>) so the
-// panel works without root; installer runs the service as `panel` with
-// PANEL_FILE_ROOT=/home to manage every home directory.
+// File manager root jail. Resolution order per request:
+//   1. explicit root (used for panel uploads / admin browsing)
+//   2. the requesting user's own Linux home  <- multi-tenant default
+//   3. PANEL_FILE_ROOT
+//   4. the invoking user's home (developer fallback)
 function defaultFileRoot() {
   if (process.env.PANEL_FILE_ROOT) return process.env.PANEL_FILE_ROOT;
   try {
@@ -22,6 +24,14 @@ function defaultFileRoot() {
 }
 
 const FILE_ROOT = defaultFileRoot();
+
+// Home directory of a panel user, used as the jail root for their file browser.
+function userRoot(user) {
+  if (user && typeof user.uid === 'number' && user.uid > 0 && user.home) {
+    if (fs.existsSync(user.home)) return user.home;
+  }
+  return FILE_ROOT;
+}
 const MAX_TEXT_SIZE = 2 * 1024 * 1024;      // 2MB text read limit
 const MAX_UPLOAD = parseInt(process.env.PANEL_MAX_UPLOAD_MB || '200', 10) * 1024 * 1024;
 const ALLOWED_EXEC = new Set(['sh', 'bash', 'tar', 'gzip', 'gunzip', 'unzip', 'zip']);
@@ -29,15 +39,16 @@ const BLOCKED_NAMES = new Set(['', '.', '..']);
 
 class PathTraversalError extends Error {}
 
-function resolveSafe(relPath) {
+function resolveSafe(relPath, root = FILE_ROOT) {
   const p = String(relPath || '/');
-  const abs = path.resolve(FILE_ROOT, '.' + p);
-  if (!abs.startsWith(FILE_ROOT)) throw new PathTraversalError('path escapes root');
+  const base = path.resolve(root);
+  const abs = path.resolve(base, '.' + p);
+  if (abs !== base && !abs.startsWith(base + path.sep)) throw new PathTraversalError('path escapes root');
   return abs;
 }
 
-async function stat(relPath) {
-  const abs = resolveSafe(relPath);
+async function stat(relPath, root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
   const st = await fsp.stat(abs);
   return {
     path: relPath, name: path.basename(abs), type: st.isDirectory() ? 'dir' : 'file',
@@ -47,8 +58,8 @@ async function stat(relPath) {
   };
 }
 
-async function list(relPath) {
-  const abs = resolveSafe(relPath);
+async function list(relPath, root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
   const entries = await fsp.readdir(abs, { withFileTypes: true });
   const out = [];
   for (const e of entries) {
@@ -65,43 +76,43 @@ async function list(relPath) {
   return out;
 }
 
-async function readFile(relPath) {
-  const abs = resolveSafe(relPath);
+async function readFile(relPath, root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
   const st = await fsp.stat(abs);
   if (st.size > MAX_TEXT_SIZE) throw new Error(`file too large to view (${st.size} bytes) - use download`);
   const buf = await fsp.readFile(abs);
   return { content: buf.toString('utf8'), size: st.size, encoding: 'utf8' };
 }
 
-async function writeFile(relPath, content) {
+async function writeFile(relPath, content, root = FILE_ROOT) {
   if (typeof content !== 'string') throw new Error('content must be string');
   if (Buffer.byteLength(content) > MAX_TEXT_SIZE) throw new Error('content too large');
-  const abs = resolveSafe(relPath);
+  const abs = resolveSafe(relPath, root);
   await fsp.mkdir(path.dirname(abs), { recursive: true });
   await fsp.writeFile(abs, content, { mode: 0o644 });
   return { ok: true, bytes: Buffer.byteLength(content) };
 }
 
-async function mkdir(relPath) {
-  const abs = resolveSafe(relPath);
+async function mkdir(relPath, root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
   await fsp.mkdir(abs, { recursive: true });
   return { ok: true };
 }
 
-async function rename(oldRel, newRel) {
-  const a = resolveSafe(oldRel), b = resolveSafe(newRel);
+async function rename(oldRel, newRel, root = FILE_ROOT) {
+  const a = resolveSafe(oldRel, root), b = resolveSafe(newRel, root);
   await fsp.rename(a, b);
   return { ok: true };
 }
 
-async function remove(relPath) {
-  const abs = resolveSafe(relPath);
+async function remove(relPath, root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
   await fsp.rm(abs, { recursive: true, force: true });
   return { ok: true };
 }
 
-async function compress(relPath, format = 'tar.gz') {
-  const abs = resolveSafe(relPath);
+async function compress(relPath, format = 'tar.gz', root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
   const out = `${abs}.${format}`;
   const base = path.basename(abs);
   if (format === 'tar.gz') await execFileP('tar', ['-czf', out, '-C', path.dirname(abs), base]);
@@ -110,9 +121,9 @@ async function compress(relPath, format = 'tar.gz') {
   return { ok: true, output: out.replace(FILE_ROOT, '') };
 }
 
-async function extract(relPath, destRel) {
-  const abs = resolveSafe(relPath);
-  const dest = destRel ? resolveSafe(destRel) : path.dirname(abs);
+async function extract(relPath, destRel, root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
+  const dest = destRel ? resolveSafe(destRel, root) : path.dirname(abs);
   const ext = path.extname(abs).replace('.', '');
   if (['gz', 'tgz'].includes(ext) || abs.endsWith('.tar.gz')) await execFileP('tar', ['-xzf', abs, '-C', dest]);
   else if (ext === 'zip') await execFileP('unzip', ['-o', abs, '-d', dest]);
@@ -121,8 +132,8 @@ async function extract(relPath, destRel) {
   return { ok: true };
 }
 
-async function saveUpload(relPath, buffer, originalName) {
-  const abs = resolveSafe(relPath);
+async function saveUpload(relPath, buffer, originalName, root = FILE_ROOT) {
+  const abs = resolveSafe(relPath, root);
   if (buffer.length > MAX_UPLOAD) throw new Error('file exceeds upload limit');
   // name sanitization
   const safeName = path.basename(String(originalName || 'upload')).replace(/[^\w.\- ]/g, '_').slice(0, 200);
@@ -140,4 +151,4 @@ async function saveUpload(relPath, buffer, originalName) {
   return { ok: true, name: path.basename(finalPath), size: buffer.length, sha256: crypto.createHash('sha256').update(buffer).digest('hex') };
 }
 
-module.exports = { list, stat, readFile, writeFile, mkdir, rename, remove, compress, extract, saveUpload, resolveSafe, FILE_ROOT, MAX_UPLOAD, PathTraversalError };
+module.exports = { list, stat, readFile, writeFile, mkdir, rename, remove, compress, extract, saveUpload, resolveSafe, userRoot, FILE_ROOT, MAX_UPLOAD, PathTraversalError };

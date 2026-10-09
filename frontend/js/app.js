@@ -121,6 +121,7 @@ function confirmDialog(title, text, { danger = false, confirmLabel = 'Confirm' }
 }
 
 /* ---------- Helpers ---------- */
+window.__esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -254,77 +255,205 @@ function logout() {
   $('#app-shell').hidden = true; $('#login-screen').hidden = false;
 }
 
-async function doLogin(e) {
-  e.preventDefault();
-  const btn = $('#login-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Signing in...';
-  const err = $('#login-error');
-  err.hidden = true;
-  try {
-    const body = { username: $('#login-user').value, password: $('#login-pass').value };
-    const totp = $('#login-totp').value;
-    if (totp) body.totp = totp;
-    const r = await api('POST', '/api/v1/auth/login', body).catch(async (e) => {
-      if (e.data?.mfaRequired) { $('#totp-field').hidden = false; $('#login-totp').focus(); return null; }
-      throw e;
-    });
-    if (!r) { btn.disabled = false; btn.innerHTML = '<span class="btn-label">Sign in</span>'; return; }
-    store.token = r.tokens.access; store.refresh = r.tokens.refresh; store.user = r.user; store.csrf = r.csrf;
-    enterApp();
-    toast('Welcome back', `Signed in as ${r.user.username}`, 'ok');
-  } catch (e) {
-    err.textContent = e.message; err.hidden = false;
-    $('#totp-field').hidden = false;
-  } finally {
-    btn.disabled = false; btn.innerHTML = '<span class="btn-label">Sign in</span>';
+/* ================= AUTH SCREEN ================= */
+const authState = { invite: null, info: { allowPublicSignup: true, invitesOnly: false }, tab: 'login' };
+
+// animated tab underline
+function moveTabInk() {
+  const active = $('.auth-tab.is-active');
+  const ink = $('.auth-tab-ink');
+  if (!active || !ink) return;
+  ink.style.width = active.offsetWidth + 'px';
+  ink.style.transform = `translateX(${active.offsetLeft}px)`;
+}
+
+function switchAuthTab(name) {
+  if (authState.tab === name) return;
+  authState.tab = name;
+  $$('.auth-tab').forEach(t => {
+    const on = t.dataset.authTab === name;
+    t.classList.toggle('is-active', on);
+    t.setAttribute('aria-selected', String(on));
+  });
+  $$('.auth-pane').forEach(p => {
+    const on = p.dataset.authPane === name;
+    p.classList.toggle('is-active', on);
+    if (on) { // replay the entrance animation
+      const inner = p.querySelector('.pane-anim');
+      inner.style.animation = 'none';
+      void inner.offsetWidth;
+      inner.style.animation = '';
+    }
+  });
+  moveTabInk();
+  setTimeout(() => {
+    const f = $(`.auth-pane[data-auth-pane="${name}"] input`);
+    if (f) f.focus();
+  }, 120);
+}
+
+function busy(btn, on) {
+  if (on) {
+    btn.dataset.label = btn.querySelector('.btn-label')?.textContent || '';
+    btn.classList.add('busy');
+    btn.disabled = true;
+  } else {
+    btn.classList.remove('busy');
+    btn.disabled = false;
+    const l = btn.querySelector('.btn-label');
+    if (l && btn.dataset.label) l.textContent = btn.dataset.label;
   }
 }
 
-function enterApp() {
-  $('#login-screen').hidden = true;
-  $('#app-shell').hidden = false;
-  const u = store.user || {};
-  $('#user-name').textContent = u.username || '—';
-  $('#user-avatar').textContent = (u.username || 'U').charAt(0).toUpperCase();
-  const v = location.hash.replace('#/', '') || 'dashboard';
-  renderView(VIEWS[v] ? v : 'dashboard');
+function showError(id, message) {
+  const el = $(id);
+  el.textContent = message;
+  el.hidden = false;
+  el.classList.remove('shake');
+  void el.offsetWidth;
+  el.classList.add('shake');
 }
 
-/* ---------- Register (first run) ---------- */
-function showRegister() {
-  openModal({
-    title: 'Create admin account',
-    body: `
-      <form id="reg-form">
-        <label class="field"><span class="field-label">Username</span><input name="username" required minlength="3" maxlength="32"></label>
-        <label class="field"><span class="field-label">Email</span><input name="email" type="email" required></label>
-        <label class="field"><span class="field-label">Password (min 12 chars)</span>
-          <input name="password" type="password" required minlength="12" id="reg-pass">
-          <div class="strength-meter" id="reg-meter"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
-          <div id="reg-hints" style="font-size:12px;color:var(--text-faint)"></div>
-        </label>
-        <div class="form-error" id="reg-error" hidden></div>
-      </form>`,
-    actions: [{ label: 'Create admin', kind: 'btn-primary', onClick: async (close) => {
-      const f = $('#reg-form');
-      const errEl = $('#reg-error');
-      try {
-        const r = await api('POST', '/api/v1/auth/register', { username: f.username.value, email: f.email.value, password: f.password.value });
-        store.token = (await api('POST', '/api/v1/auth/login', { username: f.username.value, password: f.password.value })).tokens.access;
-        const lr = await api('POST', '/api/v1/auth/login', { username: f.username.value, password: f.password.value });
-        store.token = lr.tokens.access; store.refresh = lr.tokens.refresh; store.user = lr.user; store.csrf = lr.csrf;
-        close(); enterApp(); toast('Account created', 'You are the admin now', 'ok');
-      } catch (e) { errEl.textContent = e.message; errEl.hidden = false; }
-    } }],
+async function doLogin(e) {
+  e.preventDefault();
+  const btn = $('#login-btn');
+  const err = $('#login-error');
+  err.hidden = true;
+  busy(btn, true);
+  try {
+    const body = { username: $('#login-user').value.trim(), password: $('#login-pass').value };
+    const totp = $('#login-totp').value.trim();
+    if (totp) body.totp = totp;
+    let r = null;
+    try {
+      r = await api('POST', '/api/v1/auth/login', body);
+    } catch (ex) {
+      if (ex.data?.mfaRequired) {
+        $('#totp-field').hidden = false;
+        $('#login-totp').focus();
+        busy(btn, false);
+        return;
+      }
+      throw ex;
+    }
+    store.token = r.tokens.access; store.refresh = r.tokens.refresh; store.user = r.user; store.csrf = r.csrf;
+    document.querySelector('.auth-card').classList.add('done');
+    busy(btn, false);
+    setTimeout(() => enterApp(), 260);
+    toast('Welcome back', `Signed in as ${r.user.username}`, 'ok');
+  } catch (ex) {
+    showError('#login-error', ex.message);
+    busy(btn, false);
+  }
+}
+
+async function doSignup(e) {
+  e.preventDefault();
+  const btn = $('#signup-btn');
+  const err = $('#signup-error');
+  err.hidden = true;
+  const username = $('#signup-user').value.trim();
+  const email = $('#signup-email').value.trim();
+  const password = $('#signup-pass').value;
+  busy(btn, true);
+  try {
+    const body = { username, email, password };
+    if (authState.invite) body.invite = authState.invite;
+    await api('POST', '/api/v1/auth/register', body);
+    document.querySelector('.auth-card').classList.add('done');
+    busy(btn, false);
+    const lr = await api('POST', '/api/v1/auth/login', { username, password });
+    store.token = lr.tokens.access; store.refresh = lr.tokens.refresh; store.user = lr.user; store.csrf = lr.csrf;
+    toast('Account created', `Welcome, ${lr.user.username}`, 'ok');
+    setTimeout(() => enterApp(), 260);
+  } catch (ex) {
+    showError('#signup-error', (ex.data?.details ? ex.message + ': ' + ex.data.details.join(', ') : ex.message));
+    busy(btn, false);
+  }
+}
+
+// live password strength meter (instant local feedback)
+function scorePassword(pw) {
+  if (!pw) return 0;
+  let s = 0;
+  if (pw.length >= 8) s++;
+  if (pw.length >= 12) s++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
+  if (/[0-9]/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw)) s++;
+  if (/(.)\1{2,}|123456|password|qwerty/i.test(pw)) s = Math.max(0, s - 2);
+  return Math.min(5, s);
+}
+
+function initAuthScreen() {
+  $$('.auth-tab').forEach(t => t.onclick = () => switchAuthTab(t.dataset.authTab));
+  $$('[data-goto]').forEach(b => b.onclick = () => switchAuthTab(b.dataset.goto));
+  $$('.pw-toggle').forEach(b => b.onclick = () => {
+    const input = document.getElementById(b.dataset.pwToggle);
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    b.style.color = show ? 'var(--brand)' : '';
   });
-  const pass = $('#reg-pass');
-  pass.addEventListener('input', async () => {
-    const r = await api('POST', '/api/v1/auth/password-score', { password: pass.value }).catch(() => null);
-    const score = r?.score ?? (pass.value.length >= 12 ? 3 : pass.value.length >= 8 ? 2 : 1);
-    $$('#reg-meter .bar').forEach((b, i) => { b.className = `bar ${i < score ? 'on-' + score : ''}`; });
-    $('#reg-hints').textContent = 'At least 12 chars, upper + lower + digit + symbol.';
+  $('#login-form').onsubmit = doLogin;
+  $('#signup-form').onsubmit = doSignup;
+
+  const pass = $('#signup-pass');
+  pass.addEventListener('input', () => {
+    const s = scorePassword(pass.value);
+    $$('#strength .bar').forEach((b, i) => { b.className = 'bar' + (i < s ? ' on-' + s : ''); });
+    const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'];
+    $('#strength-text').textContent = pass.value ? labels[s] : 'At least 12 characters, upper + lower + digit + symbol.';
   });
+
+  window.addEventListener('resize', moveTabInk);
+  setTimeout(moveTabInk, 60);
+}
+
+// load signup rules + validate any invite token in the URL
+async function initAuth() {
+  initAuthScreen();
+  const params = new URLSearchParams(location.search);
+  const token = params.get('invite');
+  try {
+    authState.info = await api('GET', '/api/v1/auth/registration-info');
+  } catch { /* keep defaults */ }
+  try {
+    const status = await api('GET', '/api/v1/auth/status');
+    const el = $('#hero-users');
+    if (el) el.textContent = status.users ?? 0;
+  } catch { /* ignore */ }
+
+  if (token) {
+    try {
+      const inv = await api('GET', `/api/v1/auth/invite/${encodeURIComponent(token)}`);
+      if (inv.valid) {
+        authState.invite = token;
+        $('#invite-banner').hidden = false;
+        $('#invite-detail').textContent = [
+          inv.email ? `reserved for ${inv.email}` : 'open invitation',
+          inv.maxUses > 1 ? `${inv.uses}/${inv.maxUses} uses` : 'single use',
+          inv.role === 'viewer' ? 'read-only access' : 'full account',
+        ].join(' · ');
+        if (inv.email) $('#signup-email').value = inv.email;
+        switchAuthTab('signup');
+        history.replaceState(null, '', location.pathname);
+      } else {
+        toast('Invite problem', inv.error || 'this invite is no longer valid', 'err', 6000);
+      }
+    } catch {
+      toast('Invite problem', 'invalid invite link', 'err', 6000);
+    }
+  }
+
+  const tab = $('#signup-tab');
+  if (authState.info.invitesOnly) {
+    if (!token) { tab.disabled = true; tab.style.opacity = .55; tab.title = 'This panel is invite-only'; }
+  } else if (authState.info.allowPublicSignup === false) {
+    tab.hidden = true;
+    switchAuthTab('login');
+  }
+  moveTabInk();
 }
 
 /* ---------- Notifications ---------- */
@@ -1366,14 +1495,8 @@ async function boot() {
   $('#menu-toggle').onclick = toggleSidebar;
   $('#sidebar-collapse').onclick = toggleSidebar;
   $('#drawer-backdrop').onclick = toggleSidebar;
-  $('#login-form').onsubmit = doLogin;
   initUserMenu();
-
-  // first-run: if no users exist, show register
-  try {
-    const r = await fetch('/api/v1/auth/status').then(x => x.json()).catch(() => ({}));
-    if (r.needsSetup) showRegister();
-  } catch { /* endpoint optional */ }
+  await initAuth();
 
   if (store.token && store.user) {
     // validate token
@@ -1387,6 +1510,19 @@ async function boot() {
 
   setTimeout(() => $('#splash').classList.add('done'), 900);
   setInterval(refreshNotifications, 60000);
+}
+
+// admin-only nav entries
+function applyRoleVisibility() {
+  const isAdmin = (store.user && store.user.role) === 'admin';
+  $$('.admin-only').forEach(el => { el.hidden = !isAdmin; });
+  if (!isAdmin) {
+    // a non-admin must never land on an admin view
+    const v = location.hash.replace('#/', '');
+    if (['invites', 'audit', 'settings', 'users', 'firewall', 'sysusers', 'nginx', 'ssl'].includes(v)) {
+      location.hash = '/terminal';
+    }
+  }
 }
 
 document.addEventListener('DOMContentLoaded', boot);

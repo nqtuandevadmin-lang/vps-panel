@@ -6,11 +6,17 @@ const crypto = require('crypto');
 const db = require('../db');
 
 async function fileRoutes(app, opts) {
+  // Multi-tenant: every request is jailed to the caller's own home directory.
+  // Admins may pass ?root=/ to browse the whole filesystem (admin only).
+  const rootFor = (req) => {
+    if (req.role === 'admin' && req.query && req.query.root === '/') return '/';
+    return fsm.userRoot(req.user);
+  };
   app.get('/files/list', { preHandler: [opts.authMw] }, async (req, reply) => {
     const p = String(req.query?.path || '/');
     try {
-      const items = await fsm.list(p);
-      return { ok: true, path: p, items };
+      const items = await fsm.list(p, rootFor(req));
+      return { ok: true, path: p, root: rootFor(req), items };
     } catch (e) {
       if (e instanceof fsm.PathTraversalError) return reply.code(400).send({ error: 'invalid path' });
       return reply.code(400).send({ error: e.message });
@@ -18,13 +24,13 @@ async function fileRoutes(app, opts) {
   });
 
   app.get('/files/stat', { preHandler: [opts.authMw] }, async (req, reply) => {
-    try { return { ok: true, ...(await fsm.stat(String(req.query?.path || '/'))) }; }
+    try { return { ok: true, ...(await fsm.stat(String(req.query?.path || '/'), rootFor(req))) }; }
     catch (e) { return reply.code(400).send({ error: e.message }); }
   });
 
   app.get('/files/read', { preHandler: [opts.authMw] }, async (req, reply) => {
     try {
-      const r = await fsm.readFile(String(req.query?.path || '/'));
+      const r = await fsm.readFile(String(req.query?.path || '/'), rootFor(req));
       return { ok: true, path: req.query.path, content: r.content, size: r.size };
     } catch (e) { return reply.code(400).send({ error: e.message }); }
   });
@@ -33,20 +39,20 @@ async function fileRoutes(app, opts) {
     const { path, content } = req.body || {};
     if (typeof content !== 'string') return reply.code(400).send({ error: 'content must be string' });
     try {
-      const r = await fsm.writeFile(String(path || '/'), content);
+      const r = await fsm.writeFile(String(path || '/'), content, rootFor(req));
       db.audit(req.user.id, 'file.write', path, 'ok', { bytes: r.bytes }, clientIp(req.raw));
       return { ok: true, ...r };
     } catch (e) { return reply.code(400).send({ error: e.message }); }
   });
 
   app.post('/files/mkdir', { preHandler: [opts.authMw, requireRole('user'), opts.csrfMw] }, async (req, reply) => {
-    try { await fsm.mkdir(String(req.body?.path || '/')); return { ok: true }; }
+    try { await fsm.mkdir(String(req.body?.path || '/'), rootFor(req)); return { ok: true }; }
     catch (e) { return reply.code(400).send({ error: e.message }); }
   });
 
   app.post('/files/rename', { preHandler: [opts.authMw, requireRole('user'), opts.csrfMw] }, async (req, reply) => {
     try {
-      await fsm.rename(String(req.body?.from || '/'), String(req.body?.to || '/'));
+      await fsm.rename(String(req.body?.from || '/'), String(req.body?.to || '/'), rootFor(req));
       db.audit(req.user.id, 'file.rename', req.body.from + ' -> ' + req.body.to, 'ok');
       return { ok: true };
     } catch (e) { return reply.code(400).send({ error: e.message }); }
@@ -54,7 +60,7 @@ async function fileRoutes(app, opts) {
 
   app.delete('/files/remove', { preHandler: [opts.authMw, requireRole('user'), opts.csrfMw] }, async (req, reply) => {
     try {
-      await fsm.remove(String(req.body?.path || '/'));
+      await fsm.remove(String(req.body?.path || '/'), rootFor(req));
       db.audit(req.user.id, 'file.remove', req.body.path, 'ok');
       return { ok: true };
     } catch (e) { return reply.code(400).send({ error: e.message }); }
@@ -62,7 +68,7 @@ async function fileRoutes(app, opts) {
 
   app.post('/files/compress', { preHandler: [opts.authMw, requireRole('user')] }, async (req, reply) => {
     try {
-      const r = await fsm.compress(String(req.body?.path || '/'), String(req.body?.format || 'tar.gz'));
+      const r = await fsm.compress(String(req.body?.path || '/'), String(req.body?.format || 'tar.gz'), rootFor(req));
       db.audit(req.user.id, 'file.compress', req.body.path, 'ok');
       return { ok: true, ...r };
     } catch (e) { return reply.code(400).send({ error: e.message }); }
@@ -70,7 +76,7 @@ async function fileRoutes(app, opts) {
 
   app.post('/files/extract', { preHandler: [opts.authMw, requireRole('user')] }, async (req, reply) => {
     try {
-      const r = await fsm.extract(String(req.body?.path || '/'), req.body?.dest ? String(req.body.dest) : null);
+      const r = await fsm.extract(String(req.body?.path || '/'), req.body?.dest ? String(req.body.dest) : null, rootFor(req));
       db.audit(req.user.id, 'file.extract', req.body.path, 'ok');
       return { ok: true, ...r };
     } catch (e) { return reply.code(400).send({ error: e.message }); }
@@ -83,13 +89,14 @@ async function fileRoutes(app, opts) {
     let saved = null;
     for await (const part of parts) {
       if (part.fieldname === 'path') { targetDir = await part.value; continue; }
+      if (part.fieldname === 'root' && req.role === 'admin') { await part.value; continue; }
       if (part.file) {
         if (part.file.truncated) return reply.code(413).send({ error: 'file too large' });
         const chunks = [];
         for await (const c of part.file) chunks.push(c);
         const buf = Buffer.concat(chunks);
         if (buf.length > fsm.MAX_UPLOAD) return reply.code(413).send({ error: 'file exceeds upload limit' });
-        saved = await fsm.saveUpload(targetDir, buf, part.filename);
+        saved = await fsm.saveUpload(targetDir, buf, part.filename, rootFor(req));
       }
     }
     if (!saved) return reply.code(400).send({ error: 'no file provided' });
@@ -102,7 +109,7 @@ async function fileRoutes(app, opts) {
   app.get('/files/download', { preHandler: [opts.authMw] }, async (req, reply) => {
     const rel = String(req.query?.path || '');
     let abs;
-    try { abs = fsm.resolveSafe(rel); } catch { return reply.code(400).send({ error: 'invalid path' }); }
+    try { abs = fsm.resolveSafe(rel, rootFor(req)); } catch { return reply.code(400).send({ error: 'invalid path' }); }
     const fs = require('fs');
     try {
       const st = fs.statSync(abs);
@@ -122,7 +129,7 @@ async function fileRoutes(app, opts) {
     const fs = require('fs');
     const pathMod = require('path');
     let abs;
-    try { abs = fsm.resolveSafe(String(p || '/')); } catch { return reply.code(400).send({ error: 'invalid path' }); }
+    try { abs = fsm.resolveSafe(String(p || '/'), rootFor(req)); } catch { return reply.code(400).send({ error: 'invalid path' }); }
     const results = [];
     const walk = (dir, depth) => {
       if (depth > 5 || results.length >= 100) return;

@@ -17,7 +17,8 @@
 <link rel="preload" as="font" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.min.css">
-<link rel="stylesheet" href="/css/app.css?v=1.0.0">
+<link rel="stylesheet" href="/css/auth.css?v=1.1.0">
+<link rel="stylesheet" href="/css/app.css?v=1.1.0">
 </head>
 <body>
 
@@ -31,38 +32,113 @@
   <div class="splash-bar"><div class="splash-fill"></div></div>
 </div>
 
-<!-- ============ LOGIN ============ -->
-<section id="login-screen" class="login-screen" hidden>
-  <div class="login-card">
-    <svg class="login-logo" viewBox="0 0 32 32" width="44" height="44" aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill="var(--brand)"/>
-      <path d="M9 10l7 6-7 6" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-      <line x1="18" y1="22" x2="25" y2="22" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
-    </svg>
-    <h1>VPS Panel</h1>
-    <p class="login-sub">Sign in to your server</p>
-    <form id="login-form" autocomplete="off">
-      <label class="field">
-        <span class="field-label">Username</span>
-        <input id="login-user" name="username" type="text" required minlength="3" maxlength="32" autofocus>
-      </label>
-      <label class="field">
-        <span class="field-label">Password</span>
-        <input id="login-pass" name="password" type="password" required minlength="12">
-      </label>
-      <label class="field" id="totp-field" hidden>
-        <span class="field-label">2FA code</span>
-        <input id="login-totp" name="totp" type="text" inputmode="numeric" maxlength="10" placeholder="000000">
-      </label>
-      <div id="login-error" class="form-error" role="alert" hidden></div>
-      <button class="btn btn-primary btn-block" type="submit" id="login-btn">
-        <span class="btn-label">Sign in</span>
-      </button>
-    </form>
-    <details class="login-help">
-      <summary>First time setup</summary>
-      <p>Open a terminal on the server and run the installer. The first account you register becomes the admin.</p>
-    </details>
+<!-- ============ AUTH (sign in / sign up) ============ -->
+<section id="login-screen" class="auth-screen" hidden>
+  <div class="auth-bg" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+    <span class="grid-lines"></span>
+  </div>
+
+  <div class="auth-wrap">
+    <!-- marketing side -->
+    <aside class="auth-hero">
+      <div class="hero-logo">
+        <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="var(--brand)"/>
+          <path d="M9 10l7 6-7 6" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <line x1="18" y1="22" x2="25" y2="22" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+        </svg>
+        <span>VPS Panel</span>
+      </div>
+      <h1 class="hero-title">Your server.<br>One link away.</h1>
+      <p class="hero-sub">Real PTY terminal, file manager, services, firewall and backups - isolated per account.</p>
+      <ul class="hero-list">
+        <li class="hero-item"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5l6 7-6 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="19" x2="20" y2="19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>Real terminal with vim, htop, tmux</span></li>
+        <li class="hero-item"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 3h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>File manager with upload and editor</span></li>
+        <li class="hero-item"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Each account is isolated - never root</span></li>
+      </ul>
+      <div class="hero-stats">
+        <div class="stat-chip"><b id="hero-users">-</b><span>accounts</span></div>
+        <div class="stat-chip"><b>10000</b><span>scrollback</span></div>
+        <div class="stat-chip"><b>11</b><span>themes</span></div>
+      </div>
+    </aside>
+
+    <!-- form side -->
+    <div class="auth-card" role="region" aria-label="Account access">
+      <div class="auth-tabs" role="tablist" aria-label="Sign in or create account">
+        <button class="auth-tab is-active" data-auth-tab="login" role="tab" aria-selected="true">Sign in</button>
+        <button class="auth-tab" data-auth-tab="signup" role="tab" aria-selected="false" id="signup-tab">Create account</button>
+        <span class="auth-tab-ink" aria-hidden="true"></span>
+      </div>
+
+      <!-- invite banner -->
+      <div id="invite-banner" class="invite-banner" hidden>
+        <svg class="ic" viewBox="0 0 24 24"><path d="M20 12v8H4v-8M2 8h20v4H2zM12 16a4 4 0 100-8 4 4 0 000 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <div><strong>Invite accepted</strong><span id="invite-detail"></span></div>
+      </div>
+
+      <!-- sign in -->
+      <form class="auth-pane is-active" id="login-form" data-auth-pane="login" autocomplete="on">
+        <div class="pane-anim">
+          <label class="field">
+            <span class="field-label">Username</span>
+            <input id="login-user" name="username" type="text" required minlength="3" maxlength="32" autocomplete="username" autofocus>
+          </label>
+          <label class="field">
+            <span class="field-label">Password</span>
+            <span class="pw-wrap">
+              <input id="login-pass" name="password" type="password" required minlength="6" autocomplete="current-password">
+              <button type="button" class="pw-toggle" data-pw-toggle="login-pass" aria-label="Show password">
+                <svg class="ic" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              </button>
+            </span>
+          </label>
+          <label class="field" id="totp-field" hidden>
+            <span class="field-label">2FA code</span>
+            <input id="login-totp" name="totp" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+          </label>
+          <div id="login-error" class="form-error shake" role="alert" hidden></div>
+          <button class="btn btn-primary btn-block btn-lg" type="submit" id="login-btn">
+            <span class="btn-label">Sign in</span>
+          </button>
+          <p class="auth-swap">No account yet? <button type="button" class="link-btn" data-goto="signup">Create one</button></p>
+        </div>
+      </form>
+
+      <!-- sign up -->
+      <form class="auth-pane" id="signup-form" data-auth-pane="signup" autocomplete="on">
+        <div class="pane-anim">
+          <label class="field">
+            <span class="field-label">Username</span>
+            <input id="signup-user" name="username" type="text" required minlength="3" maxlength="32" pattern="[a-zA-Z][a-zA-Z0-9_-]{2,31}" autocomplete="username">
+            <span class="field-hint">Lowercase letters, numbers, - and _ . Also your system account.</span>
+          </label>
+          <label class="field">
+            <span class="field-label">Email</span>
+            <input id="signup-email" name="email" type="email" required autocomplete="email">
+          </label>
+          <label class="field">
+            <span class="field-label">Password</span>
+            <span class="pw-wrap">
+              <input id="signup-pass" name="password" type="password" required minlength="12" autocomplete="new-password">
+              <button type="button" class="pw-toggle" data-pw-toggle="signup-pass" aria-label="Show password">
+                <svg class="ic" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              </button>
+            </span>
+            <div class="strength-meter" id="strength"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
+            <span class="field-hint" id="strength-text">At least 12 characters, upper + lower + digit + symbol.</span>
+          </label>
+          <div id="signup-error" class="form-error shake" role="alert" hidden></div>
+          <button class="btn btn-primary btn-block btn-lg" type="submit" id="signup-btn">
+            <span class="btn-label">Create my account</span>
+          </button>
+          <p class="auth-swap">Already registered? <button type="button" class="link-btn" data-goto="login">Sign in</button></p>
+        </div>
+      </form>
+    </div>
   </div>
 </section>
 
@@ -98,6 +174,7 @@
       <a class="nav-item" data-view="docker" href="#/docker"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="8" width="4" height="4" rx="0.5"/><rect x="9" y="8" width="4" height="4" rx="0.5"/><rect x="15" y="8" width="4" height="4" rx="0.5"/><rect x="6" y="14" width="4" height="4" rx="0.5"/><rect x="12" y="14" width="4" height="4" rx="0.5"/><path d="M2 21h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Docker</span></a>
       <a class="nav-item" data-view="nginx" href="#/nginx"><svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 9l3 3-3 3M13 15h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Nginx</span></a>
       <a class="nav-item" data-view="ssl" href="#/ssl"><svg class="icon" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="15" r="1.6" fill="currentColor"/></svg><span>SSL</span></a>
+      <a class="nav-item admin-only" data-view="invites" href="#/invites"><svg class="icon" viewBox="0 0 24 24"><path d="M15 19a6 6 0 100-12 6 6 0 000 12z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 8v6M16 11h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Invite Links</span></a>
       <a class="nav-item" data-view="audit" href="#/audit"><svg class="icon" viewBox="0 0 24 24"><path d="M9 3h10a2 2 0 012 2v14a2 2 0 01-2 2H9a2 2 0 01-2-2V5a2 2 0 012-2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 8h6M7 12h6M7 16h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M4 8h2M4 12h2M4 16h2" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".5"/></svg><span>Audit Log</span></a>
       <a class="nav-item" data-view="settings" href="#/settings"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Settings</span></a>
       <a class="nav-item" data-view="about" href="#/about"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="8" r="1.2" fill="currentColor"/></svg><span>About</span></a>
@@ -163,8 +240,9 @@
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
-<script src="/js/app.js?v=1.0.0"></script>
-<script src="/js/terminal.js?v=1.0.0"></script>
+<script src="/js/app.js?v=1.1.0"></script>
+<script src="/js/invites-view.js?v=1.1.0"></script>
+<script src="/js/terminal.js?v=1.1.0"></script>
 <script>
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>

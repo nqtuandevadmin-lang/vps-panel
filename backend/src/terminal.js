@@ -29,6 +29,7 @@ class TerminalSession {
     this.name = opts.name || 'shell';
     this.cols = opts.cols || 80;
     this.rows = opts.rows || 24;
+    this.demoted = false;
     this.cwd = opts.cwd || os.homedir();
     this.env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
     this.shell = opts.shell || process.env.SHELL || '/bin/bash';
@@ -47,20 +48,32 @@ class TerminalSession {
   }
 
   _spawn() {
+    // Multi-tenant: run the shell as the panel user's own Linux account so one
+    // tenant can never read another tenant's files or become root. Admins keep a
+    // root shell only when their account is actually uid 0.
+    const opts = {
+      name: 'xterm-256color',
+      cols: this.cols,
+      rows: this.rows,
+      cwd: this.cwd,
+      env: this.env,
+    };
+    const owner = db.findBy('users', 'id', this.ownerId);
+    const canDrop = owner && typeof owner.uid === 'number' && owner.uid > 0 &&
+      typeof process.getuid === 'function' && process.getuid() === 0;
+    if (canDrop) {
+      opts.uid = owner.uid;
+      opts.gid = owner.gid || owner.uid;
+      opts.cwd = owner.home || this.cwd;
+      this.cwd = opts.cwd;
+      this.demoted = true;
+    }
     try {
-      this.sock = pty.spawn(this.shell, [], {
-        name: 'xterm-256color',
-        cols: this.cols,
-        rows: this.rows,
-        cwd: this.cwd,
-        env: this.env,
-      });
+      this.sock = pty.spawn(this.shell, [], opts);
     } catch (e) {
-      // fallback shell
-      this.sock = pty.spawn('/bin/sh', [], {
-        name: 'xterm-256color', cols: this.cols, rows: this.rows,
-        cwd: this.cwd, env: this.env,
-      });
+      opts.uid = undefined; opts.gid = undefined; // fall back to the panel identity
+      opts.cwd = this.cwd;
+      this.sock = pty.spawn('/bin/sh', [], opts);
     }
     this.sock.onData((data) => this._onData(data));
     this.sock.onExit(({ exitCode }) => {

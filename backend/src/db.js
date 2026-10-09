@@ -18,6 +18,7 @@ const empty = () => ({
   backups: [],      // {id, name, path, size, createdAt, encrypted, sha256}
   notifications: [],// {id, ts, type, title, body, read}
   terminals: [],    // metadata for recorded sessions
+  invites: [],      // share links that let other people register
   settings: [],       // append-only settings change history
   migrations: [],
 });
@@ -32,7 +33,7 @@ function load() {
     const migrations = {
       1: (d) => { d.users.forEach(u => { u.role = u.role || 'admin'; }); },
       2: (d) => { d.apiKeys = d.apiKeys || []; d.notifications = d.notifications || []; },
-      3: (d) => { d.terminals = d.terminals || []; d.settings = Array.isArray(d.settings) ? d.settings : []; },
+      3: (d) => { d.terminals = d.terminals || []; d.settings = Array.isArray(d.settings) ? d.settings : []; d.invites = d.invites || []; },
     };
     // Run every migration at or above the stored version. Each one is idempotent,
 // so this is safe to run on a fresh file, a legacy file or an up-to-date file.

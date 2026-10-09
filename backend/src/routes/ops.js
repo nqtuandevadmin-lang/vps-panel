@@ -17,6 +17,8 @@ const system = require('../lib/system');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
+const { newInvite, consumeInvite } = require('../ops-invites');
+
 async function opsRoutes(app, opts) {
   // ---- health & metrics ----
   app.get('/health', async () => ({ ok: true, status: 'ok', ts: Date.now(), uptime: process.uptime() }));
@@ -116,6 +118,68 @@ async function opsRoutes(app, opts) {
     db.audit(req.user.id, 'panel.user.role', u.username, 'ok', { role });
     return { ok: true };
   });
+
+  // ---------- invite links (share this panel with other people) ----------
+  app.get('/auth/invite/:token', async (req, reply) => {
+    const inv = db.findBy('invites', 'token', String(req.params.token || '').toLowerCase());
+    if (!inv || inv.revoked) return reply.code(404).send({ error: 'invalid invite' });
+    if (inv.expiresAt && inv.expiresAt < Date.now()) return reply.code(410).send({ error: 'invite expired' });
+    const used = inv.uses >= inv.maxUses;
+    return {
+      ok: !used, valid: !used, role: inv.role, email: inv.email || null,
+      maxUses: inv.maxUses, uses: inv.uses, note: inv.note,
+      error: used ? 'invite already used' : null,
+    };
+  });
+
+  app.get('/invites', { preHandler: [opts.authMw, requireRole('admin')] }, async (req) => {
+    const base = (cfg.url || '').replace(/\/$/, '') || '';
+    return {
+      ok: true,
+      invites: db.coll('invites').map(i => ({
+        ...i,
+        link: `${base}/?invite=${i.token}`,
+        exhausted: i.uses >= i.maxUses,
+        expired: i.expiresAt && i.expiresAt < Date.now(),
+      })),
+    };
+  });
+
+  app.post('/invites', { preHandler: [opts.authMw, requireRole('admin'), opts.csrfMw] }, async (req, reply) => {
+    const { email, role, maxUses, note } = req.body || {};
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email))) return reply.code(400).send({ error: 'invalid email' });
+    const uses = Math.min(Math.max(parseInt(maxUses, 10) || 1, 1), 500);
+    const inv = newInvite({ email: email || '', role: role === 'viewer' ? 'viewer' : 'user', maxUses: uses, note: String(note || '').slice(0, 200) });
+    inv.createdBy = req.user.id;
+    db.save();
+    db.audit(req.user.id, 'invite.create', inv.token, 'ok', { maxUses: uses });
+    const base = (cfg.url || '').replace(/\/$/, '') || '';
+    return { ok: true, invite: { ...inv, link: `${base}/?invite=${inv.token}` } };
+  });
+
+  app.delete('/invites/:id', { preHandler: [opts.authMw, requireRole('admin'), opts.csrfMw] }, async (req, reply) => {
+    const inv = db.findBy('invites', 'id', req.params.id);
+    if (!inv) return reply.code(404).send({ error: 'not found' });
+    db.remove('invites', inv.id);
+    db.audit(req.user.id, 'invite.delete', inv.token, 'ok');
+    return { ok: true };
+  });
+
+  app.post('/invites/:id/reset', { preHandler: [opts.authMw, requireRole('admin'), opts.csrfMw] }, async (req) => {
+    const inv = db.findBy('invites', 'id', req.params.id);
+    if (!inv) return { ok: false, error: 'not found' };
+    inv.uses = 0; inv.revoked = false; inv.usedBy = null; inv.usedAt = null;
+    db.save();
+    return { ok: true };
+  });
+
+  // signing-up settings shown on the auth screen
+  app.get('/auth/registration-info', async () => ({
+    ok: true,
+    allowPublicSignup: cfg.allowPublicSignup,
+    invitesOnly: cfg.invitesOnly,
+    passwordMinLen: cfg.passwordMinLen,
+  }));
 
   // ---- backups ----
   app.get('/backups', { preHandler: [opts.authMw, requireRole('user')] }, async (req) => {

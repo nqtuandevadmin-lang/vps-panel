@@ -36,6 +36,14 @@ const defaults = {
   auditLog: true,
   metricsEnabled: true,
   twoFactorRequired: false,
+  // ---- multi-tenant / sharing ----
+  allowPublicSignup: true,     // anyone can create an account
+  invitesOnly: false,          // require an invite link instead
+  defaultRole: 'user',
+  adminGetsRootShell: true,
+  userHomeTemplate: '/home/{username}',
+  autoCreateLinuxUser: true,   // each account gets a real Linux user
+  enforceTwoFactorForInvited: false,
 };
 
 function loadJSON(p, fallback) {
@@ -70,6 +78,8 @@ if (process.env.PANEL_JWT_TTL) cfg.jwtAccessTTL = process.env.PANEL_JWT_TTL;
 if (process.env.PANEL_RATE_LIMIT_AUTH) cfg.rateLimitAuth = parseInt(process.env.PANEL_RATE_LIMIT_AUTH, 10);
 if (process.env.PANEL_RATE_LIMIT_GLOBAL) cfg.rateLimitGlobal = parseInt(process.env.PANEL_RATE_LIMIT_GLOBAL, 10);
 if (process.env.PANEL_BRUTE_MAX) cfg.bruteForceMax = parseInt(process.env.PANEL_BRUTE_MAX, 10);
+if (process.env.PANEL_INVITES_ONLY) cfg.invitesOnly = process.env.PANEL_INVITES_ONLY === '1';
+if (process.env.PANEL_PUBLIC_SIGNUP) cfg.allowPublicSignup = process.env.PANEL_PUBLIC_SIGNUP === '1';
 if (process.env.PANEL_CORS) cfg.corsWhitelist = process.env.PANEL_CORS.split(',').filter(Boolean);
 if (process.env.PANEL_IP_WHITELIST) cfg.ipWhitelist = process.env.PANEL_IP_WHITELIST.split(',').filter(Boolean);
 if (process.env.PANEL_IP_BLACKLIST) cfg.ipBlacklist = process.env.PANEL_IP_BLACKLIST.split(',').filter(Boolean);
