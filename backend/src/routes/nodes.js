@@ -51,8 +51,8 @@ function curlCommand(rec, baseUrl) {
   return `curl -fsSL "${endpoint}?t=${rec.token}" | sudo bash`;
 }
 
-async function nodeRoutes(app, opts) {
-  // Public: the connect script fetches this to validate its token before installing.
+// Routes used by the connect script BEFORE the agent is installed (no auth).
+async function publicNodeRoutes(app) {
   app.get('/connect/token/:token', async (req, reply) => {
     const rec = db.findBy('connectTokens', 'token', String(req.params.token || ''));
     const state = tokenState(rec);
@@ -67,6 +67,9 @@ async function nodeRoutes(app, opts) {
       note: rec.note,
     };
   });
+}
+
+async function nodeRoutes(app, opts) {
 
   // Admin: mint a connect link (10-minute lifetime)
   app.post('/nodes/connect-link', { preHandler: [opts.authMw, requireRole('admin'), opts.csrfMw] }, async (req, reply) => {
@@ -248,4 +251,4 @@ function relayTerminal(node, ws, sid) {
   ws.on('close', cleanup);
 }
 
-module.exports = { nodeRoutes, attachAgentWs, nodes, proxy, relayTerminal, newConnectToken, tokenState, CONNECT_TOKEN_TTL_MS, curlCommand, requestBase, gcTokens };
+module.exports = { nodeRoutes, publicNodeRoutes, attachAgentWs, nodes, proxy, relayTerminal, newConnectToken, tokenState, CONNECT_TOKEN_TTL_MS, curlCommand, requestBase, gcTokens };

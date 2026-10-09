@@ -139,7 +139,7 @@ function startServer() {
     catch { return reply.code(500).send('# agent template missing'); }
     // the agent id is derived from the token so retries reuse the same node
     const nodeId = require('crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
-    const base = `${req.protocol}://${req.host}`;
+    const base = nodesMod.requestBase(req);
     const script = tpl
       .replaceAll('__PANEL_BASE__', base)
       .replaceAll('__TOKEN__', token)
@@ -195,6 +195,11 @@ function startServer() {
     fileRoutes(a, { authMw: mw.authenticate, csrfMw: mw.csrf });
     opsRoutes(a, { authMw: mw.authenticate, csrfMw: mw.csrf, wsClients });
     nodesMod.nodeRoutes(a, { authMw: mw.authenticate, csrfMw: mw.csrf });
+  }, { prefix: '/api/v1' });
+
+  // connect-token validation happens before the agent exists, so it is public
+  app.register(async (a) => {
+    nodesMod.publicNodeRoutes(a);
   }, { prefix: '/api/v1' });
 
   // OpenAPI-ish docs (real API documentation)
