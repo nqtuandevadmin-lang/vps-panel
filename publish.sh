@@ -68,27 +68,40 @@ git push -q origin HEAD:main || true
 git push -q -f origin "$TAG" || true
 git remote remove origin
 
-echo "==> creating release $TAG"
+echo "==> creating release $TAG (or reusing it if it already exists)"
 REL_ID=$(api -X POST -H "Content-Type: application/json" \
   "https://api.github.com/repos/$REPO_SLUG/releases" \
   -d "{\"tag_name\":\"$TAG\",\"name\":\"VPS Panel $VERSION\",\"body\":\"Install: bash <(curl -sSL https://raw.githubusercontent.com/$REPO_SLUG/main/install.sh)\"}" \
-  | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*') || REL_ID=""
+  | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9][0-9]*' || true)
 
-if [ -n "$REL_ID" ]; then
-  # remove an existing asset with the same name (best effort, never fatal)
-  api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" 2>/dev/null \
-    | grep -o '"id": *[0-9]*' | grep -o '[0-9]*' | grep -v '^$' | while read -r aid; do
-      curl -fsSL -X DELETE -H "Authorization: token $TOKEN" \
-        "https://api.github.com/repos/$REPO_SLUG/releases/assets/$aid" >/dev/null 2>&1 || true
-    done || true
-  # upload (best effort: the repo-committed tarball is the primary install source)
-  if curl -fsSL -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/octet-stream" \
-      --data-binary "@$ASSET" \
-      "https://uploads.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets?name=$ASSET" >/dev/null 2>&1; then
-    echo "    release asset uploaded"
-  else
-    echo "    WARNING: release asset upload failed (install still works via raw tarball)"
-  fi
+if [ -z "$REL_ID" ]; then
+  # release already exists: look it up by tag (a 422 from POST means exactly that)
+  REL_ID=$(api "https://api.github.com/repos/$REPO_SLUG/releases/tags/$TAG" \
+    | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9][0-9]*' || true)
+  [ -n "$REL_ID" ] && echo "    release exists, reusing id $REL_ID"
+fi
+
+if [ -z "$REL_ID" ]; then
+  echo "    ERROR: could not create or find release $TAG (GitHub said 422 and the tag lookup failed)"
+  exit 1
+fi
+
+# remove any asset with the same name so the new one is served (idempotent republish)
+api "https://api.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets" 2>/dev/null \
+  | tr ',' '\n' | grep -B2 "\"name\":\"$ASSET\"" | grep -o '"id":[0-9]*' | grep -o '[0-9]*' | sort -u | while read -r aid; do
+    echo "    removing old asset id $aid"
+    curl -fsSL -X DELETE -H "Authorization: token $TOKEN" \
+      "https://api.github.com/repos/$REPO_SLUG/releases/assets/$aid" >/dev/null 2>&1 || true
+  done
+
+# upload (the installer fetches the asset through the API, so the id may change)
+if curl -fsSL -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/octet-stream" \
+    --data-binary "@$ASSET" \
+    "https://uploads.github.com/repos/$REPO_SLUG/releases/$REL_ID/assets?name=$ASSET" >/dev/null 2>&1; then
+  echo "    release asset uploaded"
+else
+  echo "    ERROR: release asset upload failed"
+  exit 1
 fi
 
 

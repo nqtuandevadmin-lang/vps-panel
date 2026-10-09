@@ -336,6 +336,49 @@ install_node() {
 }
 
 # ---------------- download & verify source ----------------
+# ---------- fetch the verified asset (GitHub API first: never serves a stale copy) ----------
+# GitHub REST API requires no token for public repos and always returns the current
+# release asset, unlike raw.githubusercontent / jsDelivr which cache for minutes.
+api_asset_id() {
+  "$NODE_BIN" -e '
+    let d = "";
+    process.stdin.on("data", c => d += c).on("end", () => {
+      try {
+        const rel = JSON.parse(d);
+        const a = (rel.assets || []).find(x => x.name === process.argv[1]);
+        process.stdout.write(a ? String(a.id) : "");
+      } catch { process.stdout.write(""); }
+    });
+  ' "$1"
+}
+api_file() { # api_file <path-in-repo> -> writes decoded content to stdout
+  "$NODE_BIN" -e '
+    let d = "";
+    process.stdin.on("data", c => d += c).on("end", () => {
+      try {
+        const j = JSON.parse(d);
+        process.stdout.write(Buffer.from(j.content || "", "base64").toString("utf8"));
+      } catch { process.stdout.write(""); }
+    });
+  '
+}
+
+download_asset_api() { # -> 0 on success
+  local id
+  id="$(curl -fsSL "https://api.github.com/repos/$PANEL_REPO/releases/latest" 2>/dev/null | api_asset_id "$ASSET_NAME")"
+  [ -n "$id" ] || return 1
+  curl -fsSL -H "Accept: application/octet-stream" \
+    -o "$WORK_DIR/api-asset.tar.gz" "https://api.github.com/repos/$PANEL_REPO/releases/assets/$id" || return 1
+  mv -f "$WORK_DIR/api-asset.tar.gz" "$1" || return 1
+  return 0
+}
+fetch_checksums_api() { # -> 0 on success
+  curl -fsSL "https://api.github.com/repos/$PANEL_REPO/contents/SHA256SUMS?ref=$PANEL_BRANCH" 2>/dev/null \
+    | api_file > "$WORK_DIR/sums-api.txt" || return 1
+  [ -s "$WORK_DIR/sums-api.txt" ] || return 1
+  return 0
+}
+
 download_source() {
   local tmp="$WORK_DIR/vps-panel-src.tar.gz"
   # resolve the CDN mirror lazily so PANEL_REPO set at run time is honoured.
@@ -386,11 +429,11 @@ download_source() {
   fi
   rm -f "$tmp"
   start_spinner "downloading verified asset..."
-  # Order: 1) CDN mirror (jsDelivr - consistent with SHA256SUMS, no stale cache)
-  #        2) repo tarball on raw (same commit, may lag briefly)
-  #        3) GitHub release asset
-  #        4) branch tarball (last resort)
-  if curl -fL --retry 2 -o "$tmp" "$raw_base/$ASSET_NAME"; then
+  # Order: 0) GitHub API release asset (authoritative, never CDN-cached)
+  #        1) CDN mirror  2) raw  3) branch tarball (last resort)
+  if [ -z "$PANEL_BASE_URL" ] && download_asset_api "$tmp"; then
+    SOURCE_KIND="release asset via GitHub API"
+  elif curl -fsSL --retry 3 -o "$tmp" "$raw_base/$ASSET_NAME"; then
     SOURCE_KIND="verified asset ($ASSET_NAME)"
   elif curl -fsSL --retry 2 -o "$tmp" "https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/$ASSET_NAME"; then
     SOURCE_KIND="repo asset ($ASSET_NAME)"
@@ -408,14 +451,19 @@ download_source() {
   local sums="$WORK_DIR/SHA256SUMS"
   local sums_ok=0
   if [ "$FORCE" != "1" ]; then
-    for attempt in 1 2 3; do
-      if curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then sums_ok=1; break; fi
-      sleep 3
-      # CDN may be re-indexing right after a release: retry with a cache buster
-      curl -fsSL -o "$sums" "${sums_url}?cb=$RANDOM$$" 2>/dev/null && { sums_ok=1; break; }
-      # last resort: GitHub raw (same content, different edge cache)
-      curl -fsSL -o "$sums" "https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/SHA256SUMS" 2>/dev/null && { sums_ok=1; break; }
-    done
+    # 1) GitHub API contents endpoint (authoritative)
+    if [ -z "$PANEL_BASE_URL" ] && fetch_checksums_api && grep -q "$ASSET_NAME" "$sums"; then
+      cp -f "$WORK_DIR/sums-api.txt" "$sums"; sums_ok=1
+    fi
+    # 2) CDN mirror, 3) raw - both can lag right after a publish
+    if [ "$sums_ok" != "1" ]; then
+      for attempt in 1 2 3; do
+        if curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then sums_ok=1; break; fi
+        sleep 3
+        curl -fsSL -o "$sums" "${sums_url}?cb=$RANDOM$$" 2>/dev/null && { sums_ok=1; break; }
+        curl -fsSL -o "$sums" "https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/SHA256SUMS" 2>/dev/null && { sums_ok=1; break; }
+      done
+    fi
   fi
   if [ "$FORCE" != "1" ] && [ "$sums_ok" = "1" ]; then
     local expected="" actual="" attempt=1 verified=0
