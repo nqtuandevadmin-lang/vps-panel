@@ -10,8 +10,9 @@
 #   --update        update existing installation (keeps data)
 #   --uninstall     remove panel
 #   --auto          non-interactive mode (CI/CD)
+#   --base-url <u>  serve tarball+SHA256SUMS from any HTTP host (GitLab/Codeberg/S3/self-hosted)
 #   --force         skip checksum verification (not recommended)
-# Env:   PANEL_REPO, PANEL_PORT, PANEL_DOMAIN, PANEL_AUTO=1, ADMIN_PASSWORD
+# Env:   PANEL_REPO, PANEL_PORT, PANEL_DOMAIN, PANEL_AUTO=1, ADMIN_PASSWORD, PANEL_BASE_URL
 #===============================================================================
 set -Eeuo pipefail
 
@@ -20,6 +21,10 @@ PANEL_REPO="${PANEL_REPO:-tuancutephomaiquedethuong-code/vps-panel}"
 PANEL_VERSION="v1.0.0"           # release tag used for the verified tarball asset
 PANEL_BRANCH="main"              # fallback branch if the release asset is missing
 ASSET_NAME="vps-panel-${PANEL_VERSION}.tar.gz"
+# Generic hosting: set PANEL_BASE_URL (or --base-url) to serve the tarball +
+# SHA256SUMS from ANY HTTP location (GitLab, Codeberg, your own VPS, S3, ...).
+# Example: PANEL_BASE_URL=https://gitlab.com/you/vps-panel/-/raw/v1.0.0
+PANEL_BASE_URL="${PANEL_BASE_URL:-}"
 INSTALL_DIR="/opt/vps-panel"
 DATA_DIR="$INSTALL_DIR/data"
 LOG_FILE="/var/log/vps-panel-install.log"
@@ -150,6 +155,7 @@ while [ $# -gt 0 ]; do
     --uninstall) MODE="uninstall"; shift ;;
     --auto) AUTO=1; shift ;;
     --force) FORCE=1; shift ;;
+    --base-url) PANEL_BASE_URL="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -309,8 +315,16 @@ install_node() {
 # ---------------- download & verify source ----------------
 download_source() {
   local tmp="/tmp/vps-panel-src.tar.gz"
-  local release_url="https://github.com/$PANEL_REPO/releases/download/$PANEL_VERSION/$ASSET_NAME"
-  local branch_url="https://github.com/$PANEL_REPO/archive/refs/heads/$PANEL_BRANCH.tar.gz"
+  local release_url branch_url sums_url
+  if [ -n "$PANEL_BASE_URL" ]; then
+    release_url="${PANEL_BASE_URL%/}/$ASSET_NAME"
+    sums_url="${PANEL_BASE_URL%/}/SHA256SUMS"
+    branch_url="$release_url"
+  else
+    release_url="https://github.com/$PANEL_REPO/releases/download/$PANEL_VERSION/$ASSET_NAME"
+    branch_url="https://github.com/$PANEL_REPO/archive/refs/heads/$PANEL_BRANCH.tar.gz"
+    sums_url="https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/SHA256SUMS"
+  fi
   rm -f "$tmp"
   start_spinner "downloading verified release asset..."
   if curl -fL --retry 3 -o "$tmp" "$release_url"; then
@@ -318,13 +332,12 @@ download_source() {
   else
     warn "release asset not found, falling back to branch tarball ($PANEL_BRANCH)"
     start_spinner "downloading branch tarball..."
-    curl -fL --retry 3 -o "$tmp" "$branch_url" || die "cannot download source from $branch_url (set PANEL_REPO=<owner>/<repo>)"
+    curl -fL --retry 3 -o "$tmp" "$branch_url" || die "cannot download source from $branch_url (set PANEL_REPO=<owner>/<repo> or PANEL_BASE_URL=<url>)"
     SOURCE_KIND="branch tarball (${PANEL_BRANCH})"
   fi
   stop_spinner
 
-  # SHA256 verification (real): compare against SHA256SUMS in the repo
-  local sums_url="https://raw.githubusercontent.com/$PANEL_REPO/$PANEL_BRANCH/SHA256SUMS"
+  # SHA256 verification (real): compare against SHA256SUMS
   local sums="/tmp/vps-panel-SHA256SUMS"
   if [ "$FORCE" != "1" ] && curl -fsSL -o "$sums" "$sums_url" 2>/dev/null; then
     start_spinner "verifying SHA256 checksum..."
