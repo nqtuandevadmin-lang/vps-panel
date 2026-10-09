@@ -322,9 +322,16 @@ install_node() {
 # ---------------- download & verify source ----------------
 download_source() {
   local tmp="/tmp/vps-panel-src.tar.gz"
-  # resolve the CDN mirror lazily so PANEL_REPO set at run time is honoured
-  [ -z "$PANEL_CDN_URL" ] && [ -z "$PANEL_BASE_URL" ] && \
-    PANEL_CDN_URL="https://cdn.jsdelivr.net/gh/${PANEL_REPO}@${PANEL_BRANCH}"
+  # resolve the CDN mirror lazily so PANEL_REPO set at run time is honoured.
+  # The immutable release tag is preferred: its tarball and its SHA256SUMS can
+  # never drift apart. Falls back to the branch when the tag is not published.
+  if [ -z "$PANEL_CDN_URL" ] && [ -z "$PANEL_BASE_URL" ]; then
+    if curl -fsI -o /dev/null "https://cdn.jsdelivr.net/gh/${PANEL_REPO}@${PANEL_VERSION}/SHA256SUMS" 2>/dev/null; then
+      PANEL_CDN_URL="https://cdn.jsdelivr.net/gh/${PANEL_REPO}@${PANEL_VERSION}"
+    else
+      PANEL_CDN_URL="https://cdn.jsdelivr.net/gh/${PANEL_REPO}@${PANEL_BRANCH}"
+    fi
+  fi
 
   # ---- local mode: copy from a directory that already contains the project ----
   if [ -n "$LOCAL_DIR" ]; then
