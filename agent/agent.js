@@ -308,8 +308,11 @@ function connect() {
 
   ws.onmessage = async (raw) => {
     let m; try { m = JSON.parse(raw.toString()); } catch { return; }
-    try { await handle(m, send); } catch (e) {
-      send({ type: 'result', ok: false, error: e.message, replyTo: m.replyTo });
+    try {
+      await handle(m, send);
+    } catch (e) {
+      // include the sessionId so the panel can route the failure to the right tab
+      send({ type: 'result', sessionId: m.sessionId, replyTo: m.replyTo, ok: false, error: String(e && e.message || e) });
     }
   };
 

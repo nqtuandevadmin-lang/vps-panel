@@ -62,12 +62,16 @@ function attachWs(server, deps = {}) {
               sessionId: sid, cols: msg.cols || 100, rows: msg.rows || 30,
               cwd: msg.cwd, shell: msg.shell,
             }));
+            // if the agent never answers, say so instead of showing an empty screen
+            const guard = setTimeout(() => {
+              send({ type: 'error', error: 'The agent on that VPS did not answer. Check that the agent is running: systemctl status vps-panel-agent' });
+            }, 8000);
             // relay agent output for this session back to the browser
             const onNode = (rraw) => {
               let m; try { m = JSON.parse(rraw.toString()); } catch { return; }
               if (m.sessionId && m.sessionId !== sid) return;
               if (m.replyTo && m.replyTo !== sid && !m.sessionId) return;
-              if (m.type === 'pty-created') send({ type: 'created', sessionId: sid, node: ws.nodeId });
+              if (m.type === 'pty-created') { clearTimeout(guard); send({ type: 'created', sessionId: sid, node: ws.nodeId }); }
               else if (m.type === 'pty-data') send({ type: 'data', data: m.data });
               else if (m.type === 'pty-exit') send({ type: 'exit', code: m.code });
               else if (m.type === 'result' && m.ok === false) send({ type: 'error', error: m.error });
