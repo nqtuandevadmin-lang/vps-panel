@@ -19,7 +19,7 @@ function check(name, cond, extra = '') {
 const dbPath = path.join(process.env.PANEL_DATA, 'panel.db.json');
 fs.mkdirSync(process.env.PANEL_DATA, { recursive: true });
 const seeded = {
-  version: 3,
+  version: 4,
   users: [{ id: 'u1', username: 'admin', email: 'a@b.c', passwordHash: 'x', role: 'admin', totpSecret: '', totpEnabled: false, backupCodes: [], createdAt: 1, lastLogin: null, failedAttempts: 0, lockedUntil: 0 }],
   sessions: [], apiKeys: [], audit: [], files: [], backups: [], notifications: [], terminals: [], settings: [], migrations: [],
 };
@@ -31,7 +31,7 @@ check('users survive a fresh process load', db.coll('users').length === 1, `got 
 check('seeded user is the admin', db.coll('users')[0]?.username === 'admin');
 
 // schema version is preserved / normalised
-check('schema version is 3', db.db.version === 3, `got ${db.db.version}`);
+check('schema version is current', db.db.version === 4, `got ${db.db.version}`);
 
 // a second write must not drop existing rows (this is the regression that wiped data)
 db.insert('audit', { ts: Date.now(), userId: 'u1', action: 'test', target: 'x', result: 'ok' });
@@ -61,7 +61,7 @@ setTimeout(() => {
   const db3 = require('../src/db');
   check('legacy schema is migrated (user kept)', db3.coll('users').length === 1 && db3.coll('users')[0].role === 'admin',
     JSON.stringify(db3.coll('users')));
-  check('migration adds missing collections', Array.isArray(db3.coll('settings')) && Array.isArray(db3.coll('terminals')));
+  check('migration adds missing collections', Array.isArray(db3.coll('settings')) && Array.isArray(db3.coll('terminals')) && Array.isArray(db3.coll('connectTokens')) && Array.isArray(db3.coll('nodes')));
 
   fs.rmSync(ROOT, { recursive: true, force: true });
   console.log(`\n${pass} passed, ${fail} failed, ${pass + fail} total`);

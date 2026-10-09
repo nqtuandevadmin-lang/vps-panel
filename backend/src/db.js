@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { DATA_DIR } = require('./config');
 
 const DB_PATH = path.join(DATA_DIR, 'panel.db.json');
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const empty = () => ({
   version: SCHEMA_VERSION,
@@ -19,6 +19,8 @@ const empty = () => ({
   notifications: [],// {id, ts, type, title, body, read}
   terminals: [],    // metadata for recorded sessions
   invites: [],      // share links that let other people register
+  connectTokens: [], // 10-minute links a VPS owner runs to attach their machine
+  nodes: [],        // VPS servers connected through the agent
   settings: [],       // append-only settings change history
   migrations: [],
 });
@@ -34,6 +36,7 @@ function load() {
       1: (d) => { d.users.forEach(u => { u.role = u.role || 'admin'; }); },
       2: (d) => { d.apiKeys = d.apiKeys || []; d.notifications = d.notifications || []; },
       3: (d) => { d.terminals = d.terminals || []; d.settings = Array.isArray(d.settings) ? d.settings : []; d.invites = d.invites || []; },
+      4: (d) => { d.connectTokens = d.connectTokens || []; d.nodes = d.nodes || []; },
     };
     // Run every migration at or above the stored version. Each one is idempotent,
 // so this is safe to run on a fresh file, a legacy file or an up-to-date file.
