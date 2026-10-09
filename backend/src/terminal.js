@@ -65,7 +65,8 @@ function attachWs(server, deps = {}) {
             // relay agent output for this session back to the browser
             const onNode = (rraw) => {
               let m; try { m = JSON.parse(rraw.toString()); } catch { return; }
-              if (m.sessionId !== sid) return;
+              if (m.sessionId && m.sessionId !== sid) return;
+              if (m.replyTo && m.replyTo !== sid && !m.sessionId) return;
               if (m.type === 'pty-created') send({ type: 'created', sessionId: sid, node: ws.nodeId });
               else if (m.type === 'pty-data') send({ type: 'data', data: m.data });
               else if (m.type === 'pty-exit') send({ type: 'exit', code: m.code });

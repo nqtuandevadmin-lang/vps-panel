@@ -136,9 +136,10 @@ async function handle(msg, send) {
 
     case 'pty-create': {
       const p = tryLoadPty();
-      if (!p) return reply({ type: 'result', ok: false, error: 'node-pty is not installed on this VPS (the connect script installs it)' });
+      if (!p) return reply({ type: 'result', sessionId: sid, ok: false, error: 'node-pty is not installed on this VPS - run: cd /opt/vps-panel-agent && npm install node-pty' });
       const sid = msg.sessionId || crypto.randomUUID();
       let sock;
+      reply.sid = sid;
       try {
         sock = p.spawn(msg.shell || process.env.SHELL || '/bin/bash', [], {
           name: 'xterm-256color',
@@ -147,7 +148,7 @@ async function handle(msg, send) {
           env: { ...process.env, TERM: 'xterm-256color' },
         });
       } catch (e) {
-        return reply({ type: 'result', ok: false, error: 'cannot start shell: ' + e.message });
+        return reply({ type: 'result', sessionId: sid, ok: false, error: 'cannot start shell: ' + e.message });
       }
       ptySessions.set(sid, sock);
       sock.onData((d) => send({ type: 'pty-data', sessionId: sid, data: d }));
