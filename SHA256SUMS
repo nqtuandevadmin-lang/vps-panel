@@ -1,4 +1,3 @@
 # SHA256 checksums
-# verify: sha256sum -c SHA256SUMS
-d409f45e5f96184d9323061b983f011699ed92142e454e7aaee75830d9240e13  vps-panel-v1.0.0.tar.gz
-a1ba7f2fecbe6ee9165e53efb53c212fc73617be2ba844853a60b4b734c69f6f  install.sh
+c3b42f9a68880afbde6c47d8c49cab7b9d3a7d3e3a427e8ac5551e00554f2141  vps-panel-v1.0.0.tar.gz
+6b2280fec8b04b948f15b689486a83d21634d58e006ba96e4a179b952dac0e57  install.sh
